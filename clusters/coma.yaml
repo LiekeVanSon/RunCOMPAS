@@ -1,0 +1,77 @@
+# =====================================================================
+#  Cluster profile: coma  (Radboud University, science.ru.nl)
+# =====================================================================
+#  Loaded automatically when `hostname` contains one of hostname_match.
+#  Everything a job needs that is *machine specific* lives here, so the
+#  driver scripts and the masterfolder/ stay portable.
+# =====================================================================
+
+name: coma
+hostname_match: ["coma"]
+
+# ---------------------------------------------------------------------
+# SLURM settings
+# ---------------------------------------------------------------------
+partition: "normal"          # coma has: normal (2 day), highmem, backfill (no limit)
+max_walltime: "2-00:00:00"   # hard limit of the `normal` partition
+account: null                # coma does not use accounts; set e.g. "myproject" elsewhere
+mail_type: "FAIL"            # FAIL | ALL | NONE
+mail_user: "lieke_van_son@hotmail.com"
+
+# Extra raw #SBATCH lines, if you need them (one per list entry, no "#SBATCH" prefix)
+extra_sbatch: []
+
+# ---------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------
+# Where COMPAS is installed (must contain src/COMPAS)
+compas_root: "/vol/astro8/lvanson/lvanson/Programs/COMPAS"
+
+# Where simulation output goes -- CHANGE THIS TO YOUR OWN PATH.
+#
+# !! IMPORTANT on coma: the /vol/astro* NFS volumes are exported READ-ONLY to
+# !! the compute nodes. You can write there from the coma login node, but a
+# !! slurm job cannot. Pointing output_root at /vol/astro8 makes every job die
+# !! instantly with slurm ExitCode 0:53 ("cannot open output file") and an empty
+# !! logs/ directory.
+#
+# $HOME *is* writable from the compute nodes and is shared across them, so it is
+# the correct choice here -- but note it is only ~25 GB, which is fine for tests
+# and small runs and NOT enough for a production population.
+# See docs/06_troubleshooting.md for the options for large runs.
+output_root: "/home/lvanson/CompasOutput"
+
+# Node-local disk for simulation I/O. coma explicitly asks jobs to use this:
+# the /vol NFS volumes have high latency and cope badly with many concurrent
+# writers. COMPAS writes here, and each finished batch is copied to
+# output_root when the task ends. Leave "" to write straight to output_root.
+scratch_root: "/scratch"
+
+# Only needed for stroopwafel runs. Leave "" if you installed it with pip
+# (`pip install --user stroopwafel`); set it to a clone if you use a git version.
+stroopwafel_path: "/vol/astro8/lvanson/lvanson/Programs/stroopwafel"
+
+# ---------------------------------------------------------------------
+# Python environment
+# ---------------------------------------------------------------------
+# Use your OWN venv, built from requirements.txt (see docs/01_setup.md).
+# Point both of these at it -- CHANGE THESE TO YOUR OWN PATH.
+#
+# `venv` is activated at the top of every job script; `python` is the
+# interpreter the job calls. Once the venv is active, plain "python" is
+# already the venv's python, so leave `python` as "python".
+#
+# The system python3 happens to have most of what is needed, but relying on
+# it means your jobs break silently whenever the machine is upgraded.
+venv: "/home/lvanson/venvs/runcompas_venv"
+python: "python"
+
+# ---------------------------------------------------------------------
+# Shell setup: pasted verbatim at the top of every generated job script,
+# after the venv is activated. Module loads go here.
+# ---------------------------------------------------------------------
+setup: |
+  export QT_QPA_PLATFORM=offscreen   # avoid the X Display error on headless nodes
+  # coma has no gsl/hdf5/gcc modules to load: COMPAS is built against system libs.
+  # If you rebuild COMPAS against a module stack, load it here, e.g.:
+  #   module load <your modules>

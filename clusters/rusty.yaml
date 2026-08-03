@@ -1,0 +1,50 @@
+# =====================================================================
+#  Cluster profile: rusty  (Flatiron Institute / CCA)
+# =====================================================================
+#  Reconstructed from the working Flatiron scripts in legacy/.
+#  Check compas_root / output_root before using.
+# =====================================================================
+
+name: rusty
+hostname_match: ["rusty", "worker", "ccalin"]
+
+# ---------------------------------------------------------------------
+# SLURM settings
+# ---------------------------------------------------------------------
+partition: "cca"
+max_walltime: "7-00:00:00"
+account: null
+mail_type: "FAIL"
+mail_user: "aac.van.son@gmail.com"
+
+extra_sbatch: []
+
+# ---------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------
+compas_root: "/mnt/home/lvanson/Programs/COMPAS"
+output_root: "/mnt/home/lvanson/ceph/CompasOutput"
+
+# ceph is a fast parallel filesystem, so writing to it directly is fine.
+scratch_root: ""
+stroopwafel_path: "/mnt/home/lvanson/Programs/stroopwafel"
+
+# Path to a venv built from requirements.txt. Left empty here because this
+# profile relies on the module-provided python below; set it if you make one.
+venv: ""
+python: "python"
+
+# ---------------------------------------------------------------------
+# Shell setup
+# ---------------------------------------------------------------------
+# The module stack must match the libraries COMPAS was compiled against.
+# The versions below go with COMPAS v03.21.00 (gsl 2.7.1, boost 1.84.0, HDF5 1.12.3).
+setup: |
+  export QT_QPA_PLATFORM=offscreen
+  module purge
+  module load modules/2.3-20240529
+  module load gcc/11.4.0
+  module load boost/1.84.0
+  module load gsl/2.7.1
+  module load hdf5/1.12.3
+  module load python/3.10.13

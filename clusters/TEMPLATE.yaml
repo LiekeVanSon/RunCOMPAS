@@ -1,0 +1,66 @@
+# =====================================================================
+#  Cluster profile TEMPLATE  --  copy me to add a new machine
+# =====================================================================
+#
+#  1. cp clusters/TEMPLATE.yaml clusters/<myclustername>.yaml
+#  2. fill in the fields below
+#  3. either set  CLUSTER = "<myclustername>"  in your driver script,
+#     or add your login-node hostname to hostname_match and it will be
+#     picked up automatically.
+#
+#  To find out what to put here:
+#     hostname                 -> hostname_match
+#     sinfo -s                 -> partition, max_walltime
+#     module avail             -> what to put in `setup`
+#     echo $COMPAS_ROOT_DIR    -> compas_root
+# =====================================================================
+
+name: TEMPLATE
+hostname_match: []            # e.g. ["login", "head"] -- substring match on `hostname`
+
+# ---------------------------------------------------------------------
+# SLURM settings
+# ---------------------------------------------------------------------
+partition: "CHANGE_ME"        # `sinfo -s` lists the partitions you can use
+max_walltime: "1-00:00:00"    # D-HH:MM:SS. Jobs asking for more will be rejected.
+account: null                 # some clusters require --account=<project>; null = omit
+mail_type: "FAIL"             # FAIL | ALL | NONE
+mail_user: "you@example.com"
+
+# Extra raw #SBATCH lines if your cluster needs them.
+# Written verbatim, WITHOUT the leading "#SBATCH ".
+extra_sbatch: []
+#  - "--constraint=rome"
+#  - "--qos=normal"
+
+# ---------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------
+compas_root: "CHANGE_ME"      # must contain src/COMPAS
+output_root: "CHANGE_ME"      # big shared filesystem, visible from compute nodes
+
+# Node-local disk for simulation I/O, e.g. "/scratch". Results are copied back
+# to output_root when each task finishes. Leave "" to write straight to
+# output_root (fine on a fast parallel filesystem like ceph/lustre).
+# Check your cluster docs -- many sites REQUIRE local scratch for job I/O.
+scratch_root: ""
+stroopwafel_path: ""          # "" if pip-installed, else path to a stroopwafel clone
+
+# ---------------------------------------------------------------------
+# Python environment
+# ---------------------------------------------------------------------
+# Path to your venv, built from requirements.txt (see docs/01_setup.md).
+# It is activated at the top of every job script. Leave "" to use whatever
+# python the `setup` block below leaves on your PATH.
+venv: "CHANGE_ME"             # e.g. "~/venvs/runcompas_venv"
+python: "python"              # "python" is correct once a venv is active
+
+# ---------------------------------------------------------------------
+# Shell setup: pasted verbatim at the top of every generated job script,
+# after the venv is activated.
+# ---------------------------------------------------------------------
+# This must leave you with whatever runtime libraries COMPAS was compiled
+# against. If you set `venv` above, the python packages are already handled.
+setup: |
+  export QT_QPA_PLATFORM=offscreen
+  # module load gcc boost gsl hdf5

@@ -1,1 +1,20 @@
-test
+# python
+__pycache__/
+*.pyc
+
+# generated / local
+*.egg-info/
+.ipynb_checkpoints/
+
+# never commit simulation output
+COMPAS_Output*.h5
+samples.csv
+batch_*/
+logs/
+*.out
+*.err
+*.log
+job_ids.txt
+
+# grid files can be huge and are reproducible from make_grid_file.py
+BSE_grid.txt

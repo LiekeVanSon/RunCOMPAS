@@ -1,0 +1,50 @@
+# =====================================================================
+#  RunCOMPAS python dependencies
+# =====================================================================
+#  Install into a virtual environment -- see docs/01_setup.md
+#
+#      python3 -m venv ~/venvs/runcompas_venv
+#      source ~/venvs/runcompas_venv/bin/activate
+#      pip install -r requirements.txt
+#
+#  Lower bounds only, no upper pins: these are all stable, widely-used
+#  packages and pinning them would only cause conflicts on clusters where
+#  you do not control the python version. If a future release does break
+#  something, pin it here and say why.
+#
+#  NOT listed here: COMPAS itself (a C++ program you compile -- see
+#  docs/01_setup.md) and stroopwafel (see the note at the bottom).
+# =====================================================================
+
+# --- core: needed by every run ---------------------------------------
+numpy>=1.21          # everywhere
+h5py>=3.0            # read/write COMPAS HDF5 output
+pyyaml>=5.4          # read compasConfig.yaml and clusters/*.yaml
+
+# --- postProcessing --------------------------------------------------
+astropy>=5.0         # append_weights.py (Table), CosmicIntegration (units, cosmology)
+
+# --- stroopwafel runs (Mode 2) ---------------------------------------
+pandas>=1.3          # stroopwafel_interface.py
+
+# --- CosmicIntegration -----------------------------------------------
+scipy>=1.7           # interpolation, integration
+matplotlib>=3.4      # FastCosmicIntegration imports pyplot at module level,
+                     # so this is required even if you never make a plot
+
+# =====================================================================
+#  stroopwafel  (Mode 2 only)
+# =====================================================================
+#  Deliberately NOT installed from here. Two options:
+#
+#  a) pip install stroopwafel
+#     and leave stroopwafel_path: "" in your cluster profile
+#
+#  b) git clone https://github.com/lokiysh/stroopwafel
+#     and set stroopwafel_path to the clone in your cluster profile.
+#     Preferred if you want to modify the sampler, or need a version
+#     newer than the PyPI release.
+#
+#  On coma, option (b) is already set up at
+#  /vol/astro8/lvanson/lvanson/Programs/stroopwafel
+# =====================================================================

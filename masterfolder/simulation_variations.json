@@ -1,0 +1,120 @@
+[
+  {
+    "simname": "fid",
+    "overrides": {}
+  },
+  {
+    "simname": "AM_MACLEOD_LINEAR",
+    "overrides": {
+      "--mass-transfer-angular-momentum-loss-prescription": "MACLEOD_LINEAR",
+      "--mass-transfer-jloss-linear-fraction-degen": 0.5,
+      "--mass-transfer-jloss-linear-fraction-non-degen": 0.5
+    }
+  },
+  {
+    "simname": "AM_circumbinary",
+    "overrides": {
+      "--mass-transfer-angular-momentum-loss-prescription": "CIRCUMBINARY"
+    }
+  },
+  {
+    "simname": "CE_lambda_Kruckow",
+    "overrides": {
+      "--common-envelope-lambda-prescription": "LAMBDA_KRUCKOW"
+    }
+  },
+  {
+    "simname": "CE_lambda_Loveridge",
+    "overrides": {
+      "--common-envelope-lambda-prescription": "LAMBDA_LOVERIDGE"
+    }
+  },
+  {
+    "simname": "CE_lambda_Dewi",
+    "overrides": {
+      "--common-envelope-lambda-prescription": "LAMBDA_DEWI"
+    }
+  },
+  {
+    "simname": "CE_alpha025",
+    "overrides": {
+      "--common-envelope-alpha": 0.25
+    }
+  },
+  {
+    "simname": "CE_alpha05",
+    "overrides": {
+      "--common-envelope-alpha": 0.5
+    }
+  },
+  {
+    "simname": "CE_alpha075",
+    "overrides": {
+      "--common-envelope-alpha": 0.75
+    }
+  },
+  {
+    "simname": "CE_alpha2",
+    "overrides": {
+      "--common-envelope-alpha": 2.0
+    }
+  },
+  {
+    "simname": "CE_FORMALISM_TWO_STAGE",
+    "overrides": {
+      "--common-envelope-formalism": "TWO_STAGE"
+    }
+  },
+  {
+    "simname": "CE_survive_radiative",
+    "overrides": {
+      "--common-envelope-allow-radiative-envelope-survive": true
+    }
+  },
+  {
+    "simname": "CE_survive_mainseq",
+    "overrides": {
+      "--common-envelope-allow-main-sequence-survive": true
+    }
+  },
+  {
+    "simname": "CE_postRLOF_survive",
+    "overrides": {
+      "--common-envelope-allow-immediate-RLOF-post-CE-survive": true
+    }
+  },
+  {
+    "simname": "MS_accretor_mass_BRCEK",
+    "overrides": {
+      "--main-sequence-core-mass-prescription": "BRCEK"
+    }
+  },
+  {
+    "simname": "remnant_FRYER2022",
+    "overrides": {
+      "--remnant-mass-prescription": "FRYER2022",
+      "--fryer-22-fmix": 0.5,
+      "--fryer-22-mcrit": 5.75,
+      "--kick-magnitude-distribution": "MAXWELLIAN"
+    }
+  },
+  {
+    "simname": "caseBB_AS_OTHER_MT",
+    "overrides": {
+      "--case-BB-stability-prescription": "TREAT_AS_OTHER_MT"
+    }
+  },
+  {
+    "simname": "MT_fixed_0.5",
+    "overrides": {
+      "--mass-transfer-accretion-efficiency-prescription": "FIXED",
+      "--mass-transfer-fa": 0.5
+    }
+  },
+  {
+    "simname": "Disberg_Mandel2025_kicks",
+    "overrides": {
+      "--kick-magnitude-distribution": "LOGNORMAL"
+    }
+  }
+]

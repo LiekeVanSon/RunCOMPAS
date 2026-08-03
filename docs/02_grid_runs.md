@@ -181,6 +181,7 @@ python3 <run_dir>/postProcessing/check_status.py <run_dir>
 
 ## Next
 
+- [03 Post-processing](03_stroopwafel_runs.md) — merging, weights, cosmic integration
 - [04 Post-processing](04_postprocessing.md) — merging, weights, cosmic integration
 - [05 Clusters](05_clusters.md) — adding a new machine
 - [06 Troubleshooting](06_troubleshooting.md) — when things go wrong

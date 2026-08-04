@@ -112,9 +112,6 @@ The job scripts export this as `STROOPWAFEL_PATH` and
 `stroopwafel_interface.py` puts it on `sys.path`, so the clone does not need
 installing.
 
-> On `coma` a clone is already set up at
-> `/vol/astro8/lvanson/lvanson/Programs/stroopwafel` and `clusters/coma.yaml`
-> points at it, so you can skip this step.
 
 ---
 

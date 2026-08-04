@@ -2,15 +2,11 @@
 
 ## Why
 
-Suppose you want double neutron stars. In a plain grid run maybe 1 in 10⁴ systems
-becomes one, so a 10⁶-system run buys you ~100 DNSs, and your rate estimates are
-dominated by Poisson noise.
+Gravitational-wave sources are rare, so to avoid running a ridiculously large simulation, or your rate estimates to be dominated by Poisson noise, we use "Adaptive importance sampling". 
+Specifically we use the Stroopwafel algorythm by [Broekgaarden 2019](https://arxiv.org/abs/1905.00910), and updated by lokiy: [Stroopwafel](https://github.com/lokiysh/stroopwafel)
 
-[Stroopwafel](https://github.com/lokiysh/stroopwafel)
-([arXiv:1905.00910](https://arxiv.org/abs/1905.00910)) is **adaptive importance
-sampling**: it finds where in ZAMS parameter space the systems you care about
-come from, and concentrates its samples there. For rare outcomes this is worth
-orders of magnitude in effective sample size for the same CPU time.
+**adaptive importance sampling**: finds where in ZAMS parameter space the systems you care about
+come from, and concentrates its samples there. For rare outcomes this is worth orders of magnitude in effective sample size for the same CPU time.
 
 It runs in four phases:
 

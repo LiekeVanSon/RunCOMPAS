@@ -69,7 +69,7 @@ CLUSTER = 'coma'
 
 # --- how big is the run, and how is it chopped up? -------------------------
 N_BINARIES = int(1e6)     # total systems to evolve
-N_BATCHES = 200           # = number of slurm array tasks
+N_BATCHES = 100           # = number of slurm array tasks
 MAX_CONCURRENT = 25       # cap on tasks running at once (be kind to the queue)
 SEED_BASE = 0             # COMPAS random seed of the very first system
 
@@ -90,7 +90,7 @@ GRID_FILE = None
 # One task evolves N_BINARIES/N_BATCHES systems. Time it on a small run first:
 # submit with N_BINARIES=1000, N_BATCHES=1 and look at the log.
 MAINRUN_WALLTIME = "0-04:30:00"
-MAINRUN_MEMORY = "4G"
+MAINRUN_MEMORY = "2G"
 
 # --- which stages to submit -------------------------------------------------
 RUN_MAINRUN = True

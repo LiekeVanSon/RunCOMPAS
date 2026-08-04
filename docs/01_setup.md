@@ -86,17 +86,10 @@ script, and refuse to submit if the path doesn't exist.
 
 Skip this if you only want plain grid runs.
 
-Two options. **Pip** is simpler:
-
-```bash
-pip install stroopwafel        # with your venv active
-python -c "import stroopwafel; print('stroopwafel OK')"
-```
-
-and leave `stroopwafel_path: ""` in your cluster profile.
-
-**A git clone** is better if you want to modify the sampler, or need something
-newer than the PyPI release (1.1.0, which is not always current):
+**Use a git clone.** The PyPI package (1.1.0) installs fine, but the interface
+COMPAS ships alongside it does not run at all against COMPAS v03.29.05 — see
+[03_stroopwafel_runs.md](03_stroopwafel_runs.md#which-stroopwafel) for what was
+tested and why. A clone also lets you fix the sampler when you need to:
 
 ```bash
 git clone https://github.com/lokiysh/stroopwafel ~/Programs/stroopwafel

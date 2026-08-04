@@ -69,73 +69,110 @@ def create_dimensions():
     (here q, because COMPAS wants --initial-mass-2, which we derive in
     update_properties below).
     """
-    m1 = classes.Dimension('--initial-mass-1', 1.0, 150, sampler.kroupa, prior.kroupa)
+    # Dimension names must be REAL COMPAS OPTION NAMES: stroopwafel writes them
+    # verbatim into the grid file it hands to COMPAS. Naming one 'Mass_1' gives
+    # a grid COMPAS silently rejects, and a run that evolves nothing.
+    m1 = classes.Dimension('--initial-mass-1', 5.0, 150, sampler.kroupa, prior.kroupa)
     q = classes.Dimension('q', 0.01, 1, sampler.uniform, prior.uniform, should_print=False)
     a = classes.Dimension('--semi-major-axis', .01, 1000, sampler.flat_in_log, prior.flat_in_log)
     return [m1, q, a]
+    # For white-dwarf work, drop the lower mass limit to ~1.0 Msol -- WD
+    # progenitors are far below the 5 Msol floor that suits compact objects.
 
 
 def update_properties(locations, dimensions):
     """
     Fill in variables that are DERIVED from the sampled dimensions, or that are
     drawn independently of them (here: metallicity and eccentricity).
+
+    Called once per sampled system, including every rejection sample, so the
+    metallicity draw is done as one array rather than a million scalar calls.
+    Statistically identical: the same number of independent uniforms from the
+    same generator, just requested in a block.
     """
+    if len(locations) == 0:
+        return
     m1 = dimensions[0]
     q = dimensions[1]
-    for location in locations:
+    metallicity = 10 ** np.random.uniform(-4, np.log10(0.03), size=len(locations))
+    for location, Z in zip(locations, metallicity):
         location.properties['--initial-mass-2'] = location.dimensions[m1] * location.dimensions[q]
-        location.properties['--metallicity'] = 10 ** (np.random.uniform(-4, np.log10(0.03)))
+        location.properties['--metallicity'] = Z
         location.properties['--eccentricity'] = 0
 
 
 # ===========================================================================
 #  EDIT ME (2/2): what is an "interesting" system?
 # ===========================================================================
-# Each entry takes the DCO arrays and returns a boolean mask of hits.
+# Each mask takes the DCO arrays and returns a boolean array of hits. They are
+# combined with "merges within a Hubble time" in interesting_systems() below.
+#
 # Stellar types: 10 HeWD, 11 COWD, 12 ONeWD, 13 NS, 14 BH
+#
+# --- the standard targets ---------------------------------------------------
+def _mask_DNS(st1, st2, m1, m2):
+    """Double neutron star."""
+    return np.logical_and(st1 == 13, st2 == 13)
+
+
+def _mask_BBH(st1, st2, m1, m2):
+    """Binary black hole."""
+    return np.logical_and(st1 == 14, st2 == 14)
+
+
+def _mask_BHNS(st1, st2, m1, m2):
+    """Black hole + neutron star, either order."""
+    return np.logical_or(np.logical_and(st1 == 14, st2 == 13),
+                         np.logical_and(st1 == 13, st2 == 14))
+
+
+def _mask_AnyDCO(st1, st2, m1, m2):
+    """Any double compact object, white dwarfs included."""
+    return np.logical_and(np.isin(st1, [10, 11, 12, 13, 14]),
+                          np.isin(st2, [10, 11, 12, 13, 14]))
+
+
+SYSTEMS_OF_INTEREST = {
+    'DNS': _mask_DNS,
+    'BBH': _mask_BBH,
+    'BHNS': _mask_BHNS,
+    'AnyDCO': _mask_AnyDCO,
+}
+
+
+# --- EXAMPLE: adding your own ----------------------------------------------
+# Not defaults -- worked examples of the two things you are likely to want:
+# a mass cut, and combining two populations. Delete them if they are not yours.
+#
+# These come from a double-white-dwarf project, so they also show the one thing
+# to remember for WD work: lower the m1 range in create_dimensions() to ~1 Msol,
+# or you will never sample the progenitors at all.
 def _mask_WDWD(st1, st2, m1, m2):
+    """Any double white dwarf."""
     return np.logical_and(np.isin(st1, [10, 11, 12]), np.isin(st2, [10, 11, 12]))
 
 
 def _mask_MassiveWDWD(st1, st2, m1, m2):
-    # a COWD heavier than 0.6 Msun paired with any WD or NS
+    """A CO white dwarf above 0.6 Msol paired with any WD or NS."""
     heavy1 = np.logical_and(np.logical_and(st1 == 11, m1 > 0.6), np.isin(st2, [10, 11, 12, 13]))
     heavy2 = np.logical_and(np.logical_and(st2 == 11, m2 > 0.6), np.isin(st1, [10, 11, 12, 13]))
     return np.logical_or(heavy1, heavy2)
 
 
-def _mask_BBH(st1, st2, m1, m2):
-    return np.logical_and(st1 == 14, st2 == 14)
-
-
-def _mask_DNS(st1, st2, m1, m2):
-    return np.logical_and(st1 == 13, st2 == 13)
-
-
-def _mask_BHNS(st1, st2, m1, m2):
-    return np.logical_or(np.logical_and(st1 == 14, st2 == 13),
-                         np.logical_and(st1 == 13, st2 == 14))
-
-
 def _mask_MassiveWDWD_NSNS(st1, st2, m1, m2):
-    # NOTE: pushing the WD mass cut to 0.8 makes these systems so rare that
-    # stroopwafel struggles to target both populations at once.
+    """
+    Two populations at once. Workable here, but fragile: raising the WD cut to
+    0.8 Msol makes the two so rare that the explore phase finds too few of
+    either for the adaptation to latch onto.
+    """
     return np.logical_or(_mask_MassiveWDWD(st1, st2, m1, m2), _mask_DNS(st1, st2, m1, m2))
 
 
-def _mask_AnyDCO(st1, st2, m1, m2):
-    return np.logical_and(np.isin(st1, [10, 11, 12, 13, 14]), np.isin(st2, [10, 11, 12, 13, 14]))
-
-
-SYSTEMS_OF_INTEREST = {
+SYSTEMS_OF_INTEREST.update({
     'WDWD': _mask_WDWD,
     'MassiveWDWD': _mask_MassiveWDWD,
-    'BBH': _mask_BBH,
-    'DNS': _mask_DNS,
-    'BHNS': _mask_BHNS,
     'MassiveWDWD_NSNS': _mask_MassiveWDWD_NSNS,
-    'AnyDCO': _mask_AnyDCO,
-}
+})
 
 
 #############################################################################
@@ -194,6 +231,21 @@ def interesting_systems(batch):
                 os.rename(os.path.join(folder, 'COMPAS_Output.h5'), batch_h5)
             sfile = h5.File(batch_h5, 'r')
             seeds = sfile['BSE_System_Parameters']['SEED'][:]
+
+            # A batch in which nothing formed a DCO has NO
+            # BSE_Double_Compact_Objects group at all -- COMPAS only writes a
+            # group once it has a row for it. That is normal for small batches
+            # and rare targets, so it means "no hits", not an error.
+            if 'BSE_Double_Compact_Objects' not in sfile:
+                for sample in batch['samples']:
+                    sample.properties['SEED'] = 0
+                    sample.properties['is_hit'] = 0
+                    sample.properties['batch'] = batch['number']
+                for index, sample in enumerate(batch['samples']):
+                    sample.properties['SEED'] = seeds[index]
+                sfile.close()
+                return 0
+
             double_compact_objects = sfile['BSE_Double_Compact_Objects']
 
         for index, sample in enumerate(batch['samples']):
@@ -221,11 +273,55 @@ def interesting_systems(batch):
 
         return int(np.sum(interesting_mask))
 
-    except IOError as error:
-        print('Error in interesting_systems(batch):', error,
-              '\n Either there were no DCOs in this batch, or the COMPAS run '
-              'failed -- check the batch logs in the MainRun/logs/ directory.')
+    # KeyError: an expected group/column is missing from the h5.
+    # OSError/IOError: the file is missing or unreadable, i.e. COMPAS failed.
+    except (IOError, OSError, KeyError) as error:
+        print(f'Error in interesting_systems(batch {batch.get("number")}): '
+              f'{type(error).__name__}: {error}\n'
+              '  Either the COMPAS run for this batch failed (check the batch logs\n'
+              '  under the MainRun directory), or its output is missing a group this\n'
+              '  function expects. Treating the batch as zero hits and continuing.')
         return 0
+
+
+def _zams_radius(mass, metallicity):
+    """
+    Vectorised ZAMS radius (Tout et al. 1996), in AU.
+
+    Same arithmetic as stroopwafel.utils.get_zams_radius, done on whole arrays.
+    The scalar version is called twice per sampled system and re-derives the
+    9x5 metallicity polynomial every single time; at a million rejection
+    samples that alone was over half the runtime.
+
+    The coefficient accumulation below deliberately mirrors the scalar loop
+    (`total += series * value; value *= xi`) rather than using a polynomial
+    helper, so the floating-point operations happen in the same order and the
+    result is bit-for-bit identical.
+    """
+    mass = np.asarray(mass, dtype=float)
+    metallicity_xi = np.log10(np.asarray(metallicity, dtype=float) / constants.ZSOL)
+
+    coeffs = []
+    for coeff in constants.R_COEFF:
+        value = np.ones_like(metallicity_xi)
+        total = np.zeros_like(metallicity_xi)
+        for series in coeff:
+            total = total + series * value
+            value = value * metallicity_xi
+        coeffs.append(total)
+
+    top = (coeffs[0] * mass ** 2.5 + coeffs[1] * mass ** 6.5
+           + coeffs[2] * mass ** 11 + coeffs[3] * mass ** 19
+           + coeffs[4] * mass ** 19.5)
+    bottom = (coeffs[5] + coeffs[6] * mass ** 2 + coeffs[7] * mass ** 8.5
+              + mass ** 18.5 + coeffs[8] * mass ** 19.5)
+    return top / bottom * constants.R_SOL_TO_AU
+
+
+def _roche_lobe_radius(mass1, mass2):
+    """Vectorised Eggleton (1983) Roche lobe radius; mirrors utils.calculate_roche_lobe_radius."""
+    q = np.asarray(mass1, dtype=float) / np.asarray(mass2, dtype=float)
+    return 0.49 / (0.6 + q ** (-2.0 / 3.0) * np.log(1.0 + q ** (1.0 / 3.0)))
 
 
 def rejected_systems(locations, dimensions):
@@ -233,31 +329,44 @@ def rejected_systems(locations, dimensions):
     Mark systems the birth distribution would never produce (touching at birth,
     Roche-lobe overflow at ZAMS, secondary below the minimum mass), so they do
     not eat into the sample budget.
+
+    Stroopwafel calls this with up to TOTAL_REJECTION_SAMPLES (1e6) locations at
+    the start, and again with REJECTION_SAMPLES_PER_BATCH for EVERY adapted
+    Gaussian -- so its cost scales with the number of hits. Doing it per system
+    in python is what makes a large run crawl between batches, hence the
+    array-at-a-time version here.
     """
+    if len(locations) == 0:
+        return 0
+
     m1, q, a = dimensions[0], dimensions[1], dimensions[2]
-    mass_1 = [loc.dimensions[m1] for loc in locations]
-    mass_2 = [loc.properties['--initial-mass-2'] for loc in locations]
+    mass_1 = np.fromiter((loc.dimensions[m1] for loc in locations), float, len(locations))
+    mass_2 = np.fromiter((loc.properties['--initial-mass-2'] for loc in locations),
+                         float, len(locations))
     try:
-        metallicity = [loc.properties['--metallicity'] for loc in locations]
+        metallicity = np.fromiter((loc.properties['--metallicity'] for loc in locations),
+                                  float, len(locations))
     except KeyError:
         Z = dimensions[3]
-        metallicity = [loc.dimensions[Z] for loc in locations]
-    eccentricity = [loc.properties['--eccentricity'] for loc in locations]
+        metallicity = np.fromiter((loc.dimensions[Z] for loc in locations),
+                                  float, len(locations))
+    eccentricity = np.fromiter((loc.properties['--eccentricity'] for loc in locations),
+                               float, len(locations))
+    separation = np.fromiter((loc.dimensions[a] for loc in locations), float, len(locations))
 
-    num_rejected = 0
-    for index, location in enumerate(locations):
-        radius_1 = utils.get_zams_radius(mass_1[index], metallicity[index])
-        radius_2 = utils.get_zams_radius(mass_2[index], metallicity[index])
-        sep = location.dimensions[a] * (1 - eccentricity[index])
-        rl_1 = radius_1 / (sep * utils.calculate_roche_lobe_radius(mass_1[index], mass_2[index]))
-        rl_2 = radius_2 / (sep * utils.calculate_roche_lobe_radius(mass_2[index], mass_1[index]))
-        location.properties['is_rejected'] = 0
-        if (mass_2[index] < constants.MINIMUM_SECONDARY_MASS
-                or location.dimensions[a] <= (radius_1 + radius_2)
-                or rl_1 > 1 or rl_2 > 1):
-            location.properties['is_rejected'] = 1
-            num_rejected += 1
-    return num_rejected
+    radius_1 = _zams_radius(mass_1, metallicity)
+    radius_2 = _zams_radius(mass_2, metallicity)
+    sep = separation * (1 - eccentricity)
+    rl_1 = radius_1 / (sep * _roche_lobe_radius(mass_1, mass_2))
+    rl_2 = radius_2 / (sep * _roche_lobe_radius(mass_2, mass_1))
+
+    rejected = ((mass_2 < constants.MINIMUM_SECONDARY_MASS)
+                | (separation <= (radius_1 + radius_2))
+                | (rl_1 > 1) | (rl_2 > 1))
+
+    for location, is_rejected in zip(locations, rejected):
+        location.properties['is_rejected'] = int(is_rejected)
+    return int(rejected.sum())
 
 
 def build_command_options(use_run_submit, config_file, output_folder):

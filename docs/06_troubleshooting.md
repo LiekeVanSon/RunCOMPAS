@@ -87,17 +87,51 @@ tail -50 <run_dir>/logs/grid_4823914_37.err     # a specific failed array task
 
 ## Common problems
 
-### "My 200-system test produced a 700 MB file"
+### A small run produces an absurdly large merged file
 
-Not a bug. COMPAS allocates HDF5 chunks of **100000 entries** by default, so even
-a tiny run allocates full-size chunks. For small test runs, set in
-`compasConfig.yaml`:
+Not COMPAS -- the merge step. `h5copy` allocates one full HDF5 chunk for **every
+dataset**, and COMPAS output has hundreds of them. At h5copy's default chunk size
+of 100000 entries, a 200-system run merged to **706 MB**; the same data with a
+chunk size of 1000 is **778 KB**. Nearly a thousand-fold difference, all empty
+chunks.
 
-```yaml
-    --hdf5-chunk-size: 1000
+The drivers now scale the chunk size to the run (`h5_chunk_size()`, roughly
+N/100 clamped to 1000-100000) and pass it to h5copy with `-c`. If you invoke
+h5copy by hand, pass `-c` yourself:
+
+```bash
+python3 h5copy.py <run_dir>/MainRun/ -r 2 -c 1000 -o merged.h5
 ```
 
-Leave it at the default for production runs — it is much faster there.
+Too small is not free either -- many tiny chunks slow down reads -- so scale it
+with the run rather than always using 1000.
+
+Realistic sizes after this fix: roughly **4 KB per system**, so ~4 GB for 1e6
+systems and ~20 GB for 5e6.
+
+### `check_status.py` says CORRUPT: more rows than unique SEEDs
+
+```
+Data integrity:
+  CORRUPT  400 rows but only 200 unique SEEDs (each appears ~2x)
+```
+
+Post-processing merged a **previous merged file** back in. `h5copy` scans
+`MainRun/` two levels deep and the merged file lives in `MainRun/`, so a leftover
+`COMPAS_Output.h5` becomes an input as well as the output. Every system is then
+counted twice — silently, with no error, doubling every rate you compute.
+
+The shipped `COMPAS_PP.sbatch` deletes previous merged files before merging, so
+this should not happen. If you see it, you are probably running an older
+generated job script, or invoked `h5copy.py` by hand. To fix:
+
+```bash
+rm -f <run_dir>/MainRun/COMPAS_Output.h5 <run_dir>/MainRun/COMPAS_Output_wWeights.h5
+sbatch <run_dir>/postProcessing/COMPAS_PP.sbatch
+```
+
+Worth knowing because resubmitting a few failed array tasks and re-merging is a
+completely normal workflow — which is exactly when this used to bite.
 
 ### Jobs fail instantly with ExitCode `0:53` and an empty `logs/` directory
 
@@ -260,26 +294,67 @@ cluster profile, COMPAS writes to node-local scratch and each finished batch is
 copied back to `output_root` when the task ends (including on failure, so
 partial output survives). Scratch is always cleaned up afterwards.
 
-That leaves the question of where `output_root` points:
+### Why `output_root` cannot be `/vol/astro8`
 
-- **`$HOME` (current setting)** — works today, shared and writable from nodes.
-  But it is only ~25 GB, and a COMPAS h5 is much bigger than you expect
-  (a 200-system test produces ~700 MB, see the chunk-size note above). Fine for
-  tests and small runs; **not enough for a production population.**
+Every route from a compute node to astro8 is closed:
 
-- **`/vol/astro8` via `scp`** — the cluster docs suggest staging results to the
-  fileserver by name (`scp out.h5 astro8-srv:/vol/astro8/users/me/`) rather than
-  through the read-only mount. This needs passwordless SSH to `astro8-srv`,
-  which is not set up by default (`Permission denied (publickey...)`). If you
-  get that working it is the right home for production data.
+| route | status |
+|---|---|
+| write the NFS mount directly | **read-only export** to compute nodes |
+| `scp` to `astro8-srv` (as the cluster docs suggest) | server refuses user logins |
+| `ssh`/`scp` back to the coma login node | **coma requires 2FA** — `publickey` gets "partial success", then `keyboard-interactive` is demanded |
 
-- **Ask the sysadmin** whether `/vol/astro8` can be exported read-write to the
-  compute nodes. If it can, set `output_root` back to astro8 and the storage
-  problem disappears entirely.
+That last one is the decisive constraint: **no batch job on coma can ever ssh or
+scp anywhere**, no matter how you set up keys. So automated stage-out to astro8
+is impossible, and `$HOME` is the only shared filesystem the nodes can write.
 
-Until one of the last two is sorted, keep production runs small enough for
-`$HOME`, or move each finished run off to `/vol/astro8` **from the login node**
-(which can write there) before starting the next one.
+### The two-tier workflow
+
+Jobs write to `output_root` (`$HOME`, ~25 GB), and you move finished runs to
+`archive_root` (astro8) yourself, **from the login node**:
+
+```bash
+python3 archive_run.py --list          # what is using space, and is it finished?
+python3 archive_run.py my_run          # move it to astro8
+python3 archive_run.py --all           # move everything that has finished
+```
+
+Whatever nesting you use under `output_root` is mirrored into `archive_root`,
+so the two layouts always match:
+
+```
+$HOME/CompasOutput/v03.29.05/N1e6_fid
+   ->  /vol/astro8/.../CompasOutput/v03.29.05/N1e6_fid
+```
+
+That version level comes from `RUN_SUBDIR` in the drivers. Name a run by its
+full relative path or by its bare name when unambiguous, and use `--from` /
+`--to` to override the profile's roots entirely.
+
+It refuses to touch a run that still has jobs in the queue or has no merged
+output yet, so you cannot archive a run out from under itself.
+
+Keep an eye on `--list`. At ~4 KB/system, `$HOME` holds a few 1e6-system runs
+comfortably, but a single 5e6-system run is ~20 GB and a 19-variation sweep is
+hundreds of GB. Archive between runs, and for a big sweep archive as you go.
+
+### This is really a sysadmin question
+
+The evidence, if you need to make the case:
+
+- `/vol/astro8` is read-only from **every** compute node -- verified on 17 nodes
+  spanning the general pool and the `proj_bhc`, `proj_stev` and `proj_statm`
+  ranges. It is not a node-selection problem.
+- The mount reports `rw` in `mount`, but writes return `EROFS`, so the
+  restriction is in the **NFS export on astro8-srv**, not in the client mount.
+- The login node writes astro8 fine, so it is per-client, not a permission
+  problem on your directories.
+- `/scratch` (3.4 TB, node-local) and `$HOME` (25 GB, shared) are the only
+  writable filesystems on a compute node.
+
+Ask whether `/vol/astro8` can be exported read-write to the compute nodes, the
+way `/vol/astro2` presumably was before it was phased out. If it can, point
+`output_root` straight at astro8 and `archive_run.py` becomes unnecessary.
 
 ---
 

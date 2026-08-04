@@ -122,6 +122,67 @@ def check_outputs(run_dir):
             print(f"  {DIM}absent   {rel}{RESET}")
 
 
+def check_seeds(run_dir):
+    """
+    Sanity-check the merged file: every system should appear exactly once, and
+    the total should match the sum over the batches.
+
+    A merged file containing each SEED twice means post-processing ran on top of
+    a previous merge (h5copy scans MainRun/, and the merged file lives there).
+    It is silent and it doubles every population statistic, so it is worth
+    catching here rather than in a paper.
+    """
+    try:
+        import h5py
+        import numpy as np
+    except ImportError:
+        return
+
+    merged = None
+    for name in ('COMPAS_Output_wWeights.h5', 'COMPAS_Output.h5'):
+        p = os.path.join(run_dir, 'MainRun', name)
+        if os.path.isfile(p):
+            merged = p
+            break
+    if merged is None:
+        return
+
+    try:
+        with h5py.File(merged, 'r') as f:
+            if 'BSE_System_Parameters' not in f:
+                return
+            seeds = f['BSE_System_Parameters']['SEED'][:]
+    except Exception as err:
+        print(f"  {RED}could not read {os.path.basename(merged)}: {err}{RESET}")
+        return
+
+    n_rows = len(seeds)
+    n_uniq = len(np.unique(seeds))
+
+    batch_total = 0
+    for b in glob.glob(os.path.join(run_dir, 'MainRun', 'batch_*', '*.h5')):
+        try:
+            with h5py.File(b, 'r') as bf:
+                if 'BSE_System_Parameters' in bf:
+                    batch_total += len(bf['BSE_System_Parameters']['SEED'])
+        except Exception:
+            pass
+
+    if n_rows == n_uniq:
+        print(f"  {GREEN}ok{RESET}       {n_rows} systems, all SEEDs unique")
+    else:
+        rep = n_rows // n_uniq if n_uniq else 0
+        print(f"  {RED}CORRUPT{RESET}  {n_rows} rows but only {n_uniq} unique SEEDs "
+              f"(each appears ~{rep}x)")
+        print(f"  {RED}         post-processing merged a previous merged file.{RESET}")
+        print(f"  {DIM}         fix: rm {merged} and resubmit "
+              f"{os.path.join(run_dir, 'postProcessing', 'COMPAS_PP.sbatch')}{RESET}")
+
+    if batch_total and batch_total != n_uniq:
+        print(f"  {YELLOW}note{RESET}     batches hold {batch_total} systems but the "
+              f"merged file has {n_uniq} unique -- some batches may be missing")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -140,6 +201,8 @@ def main():
     check_batches(run_dir)
     print("\nOutput files:")
     check_outputs(run_dir)
+    print("\nData integrity:")
+    check_seeds(run_dir)
     print()
 
 

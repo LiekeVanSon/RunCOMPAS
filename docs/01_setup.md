@@ -131,15 +131,27 @@ hostname                      # which profile will be matched
 cat clusters/coma.yaml        # is compas_root / output_root correct for YOU?
 ```
 
-The one field you almost certainly need to change is **`output_root`** — it
-defaults to Lieke's directory. Point it at your own space:
+The fields you almost certainly need to change are **`output_root`** and
+**`archive_root`** — they default to Lieke's directories:
 
 ```yaml
-output_root: "/vol/astro8/lvanson/<your-dir>/CompasOutput"
+output_root:  "/home/<you>/CompasOutput"                  # jobs write here
+archive_root: "/vol/astro8/<you>/CompasOutput"            # you move runs here
 ```
 
-Simulation output is **large** (tens to hundreds of GB). Never point this at your
-home directory. On a new machine, see [05_clusters.md](05_clusters.md).
+**`output_root` must be writable from the compute nodes**, which is not the same
+as being writable from the login node. On coma the big `/vol/astro*` volumes are
+exported read-only to the nodes, so jobs must write to `$HOME` and finished runs
+are moved to astro8 afterwards with `archive_run.py`. Check yours:
+
+```bash
+srun -p normal -n1 -t 2 bash -c 'touch <output_root>/probe && echo OK || echo NO'
+```
+
+Simulation output is **large** (tens to hundreds of GB) and `$HOME` on coma is
+only ~25 GB, so archive between runs. See
+[06_troubleshooting.md](06_troubleshooting.md) for the full picture, and
+[05_clusters.md](05_clusters.md) for a new machine.
 
 ---
 
@@ -196,17 +208,16 @@ squeue -u $USER                         # watch it
 When it finishes:
 
 ```bash
-python3 <output_root>/my_first_test/postProcessing/check_status.py \
-        <output_root>/my_first_test
+python3 <output_root>/my_first_test/postProcessing/check_status.py <output_root>/my_first_test
 ```
 
 You should see 4 batch directories with output, and a merged
 `MainRun/COMPAS_Output.h5`.
 
-> **Don't be alarmed if that file is hundreds of MB for 200 systems.** COMPAS
-> allocates HDF5 chunks of 100000 entries by default. For small test runs add
-> `--hdf5-chunk-size: 1000` to your config. See
-> [06_troubleshooting.md](06_troubleshooting.md).
+> A 200-system run merges to well under a megabyte. If yours is hundreds of MB,
+> the merge used too large an HDF5 chunk size — see
+> [06_troubleshooting.md](06_troubleshooting.md). The drivers scale this
+> automatically, so it should not happen.
 
 ---
 

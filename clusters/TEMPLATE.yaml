@@ -37,7 +37,12 @@ extra_sbatch: []
 # Paths
 # ---------------------------------------------------------------------
 compas_root: "CHANGE_ME"      # must contain src/COMPAS
-output_root: "CHANGE_ME"      # big shared filesystem, visible from compute nodes
+output_root: "CHANGE_ME"      # WRITABLE FROM COMPUTE NODES -- verify, see docs/05_clusters.md
+
+# Optional. Only needed when output_root is not where you want data to live
+# long term -- e.g. when the big volume is not writable from compute nodes.
+# Move finished runs there from the login node with archive_run.py.
+archive_root: ""
 
 # Node-local disk for simulation I/O, e.g. "/scratch". Results are copied back
 # to output_root when each task finishes. Leave "" to write straight to

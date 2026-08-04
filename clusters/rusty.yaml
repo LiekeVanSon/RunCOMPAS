@@ -25,6 +25,10 @@ extra_sbatch: []
 compas_root: "/mnt/home/lvanson/Programs/COMPAS"
 output_root: "/mnt/home/lvanson/ceph/CompasOutput"
 
+# ceph is writable from the compute nodes and large, so runs stay where they
+# land and there is nothing to archive. archive_run.py is not needed here.
+archive_root: ""
+
 # ceph is a fast parallel filesystem, so writing to it directly is fine.
 scratch_root: ""
 stroopwafel_path: "/mnt/home/lvanson/Programs/stroopwafel"

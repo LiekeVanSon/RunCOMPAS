@@ -58,6 +58,15 @@ REPO = os.path.dirname(os.path.abspath(__file__))
 RUN_NAME = "N1e6_DNS"
 OUTPUT_ROOT = None        # None = output_root from the cluster profile
 
+# --- optional extra directory level ----------------------------------------
+# Runs land in  <output_root>/<RUN_SUBDIR>/<RUN_NAME>.
+#   "auto"      -> the COMPAS version, e.g. "v03.29.05"  (recommended)
+#   "some/name" -> a literal path
+#   None        -> no extra level
+# archive_run.py mirrors this structure into archive_root, so the working and
+# archived layouts always match.
+RUN_SUBDIR = "auto"
+
 # --- which cluster profile to use ------------------------------------------
 CLUSTER = None            # None = auto-detect from hostname
 
@@ -120,6 +129,36 @@ BASE_OVERRIDES = {
 #  (This machinery is deliberately duplicated in Submit_GridRun.py so that   #
 #   each driver is self-contained and can be copied on its own.)             #
 # ===========================================================================
+
+def resolve_subdir(subdir, profile):
+    """
+    Optional directory level between output_root and the run name.
+
+    "auto" resolves to the COMPAS version that will actually run, e.g.
+    "v03.29.05". Filing data under the code version that produced it is worth
+    the extra level: COMPAS renames and removes options between releases, so a
+    run is only really reproducible against the build it came from.
+
+    Set a literal string to pin it, or None for no extra level.
+    """
+    if not subdir:
+        return ''
+    if subdir != 'auto':
+        return subdir.strip('/')
+
+    exe = os.path.join(profile['compas_root'], 'src/COMPAS')
+    try:
+        out = subprocess.run([exe, '--version'], capture_output=True, text=True, timeout=60)
+        match = re.search(r'v\d+\.\d+\.\d+', out.stdout)
+        if match:
+            return match.group(0)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    raise SystemExit(
+        f"RUN_SUBDIR is 'auto' but the COMPAS version could not be read from:\n"
+        f"    {exe} --version\n"
+        f"Set RUN_SUBDIR to a literal string (e.g. \"v03.29.05\") or to None.")
+
 
 def load_cluster(name=None):
     """Read clusters/<name>.yaml, or auto-detect one from the hostname."""
@@ -262,14 +301,28 @@ def check_walltime(requested, maximum, label):
         pass
 
 
+def h5_chunk_size(n_systems):
+    """
+    Chunk size for h5copy, scaled to the run.
+
+    h5copy allocates one full chunk per dataset, and COMPAS output has ~840
+    datasets. At the h5copy default of 100000 that is ~670 MB of empty chunks
+    even for a 200-system test run. Too small is bad too -- many tiny chunks
+    slow reads down -- so aim for ~100 chunks across the run, clamped to a
+    sane range.
+    """
+    return int(min(100000, max(1000, n_systems // 100)))
+
+
 def update_config_file(path, overrides):
     """
     Apply COMPAS flag overrides to a compasConfig.yaml, in place.
 
-    Uncomments the entry if needed and replaces its value. The written
-    indentation (4 spaces) matches what you get by simply deleting the '#',
-    so hand-edited and script-edited entries stay at a consistent indent --
-    YAML rejects a mapping whose keys are indented inconsistently.
+    Uncomments the entry if needed and replaces its value, at whatever indent
+    the file already uses for its uncommented entries. YAML rejects a mapping
+    whose keys sit at inconsistent indentation, and people uncomment by hand in
+    different ways -- deleting just the '#' leaves 4 spaces, deleting '# '
+    leaves 3 -- so we match the file instead of imposing a width.
 
     Raises if a flag is not in the file at all, which almost always means a
     typo or an option that your COMPAS version does not have.
@@ -279,6 +332,12 @@ def update_config_file(path, overrides):
 
     with open(path) as f:
         lines = f.readlines()
+
+    # Match the indent already used by uncommented entries; fall back to 4,
+    # which is what you get by deleting only the '#' from a commented line.
+    existing = [re.match(r'^( +)--', l) for l in lines]
+    indents = [m.group(1) for m in existing if m]
+    indent = indents[0] if indents else '    '
 
     applied = set()
     for i, line in enumerate(lines):
@@ -292,7 +351,7 @@ def update_config_file(path, overrides):
                     formatted = f"'{value}'"
                 else:
                     formatted = str(value)
-                lines[i] = f"    {flag}: {formatted}\n"
+                lines[i] = f"{indent}{flag}: {formatted}\n"
                 applied.add(flag)
                 break
 
@@ -357,11 +416,11 @@ def load_variations(only=None):
     return variations
 
 
-def submit_one(variation, profile, args, output_root):
+def submit_one(variation, profile, args, output_root, subdir=''):
     """Set up and submit the full chain for one variation."""
     simname = variation['simname']
     run_name = f"{args.run_name}_{simname}"
-    run_dir = os.path.join(output_root, run_name)
+    run_dir = os.path.join(output_root, subdir, run_name)
 
     print(f"\n--- {simname} ---")
     print(f"  {run_dir}")
@@ -403,6 +462,7 @@ def submit_one(variation, profile, args, output_root):
          'JOB_NAME': f'pp_{run_name}'[:60],
          'WALLTIME': PP_WALLTIME,
          'MEMORY': PP_MEMORY,
+         'H5_CHUNK': h5_chunk_size(NUM_SYSTEMS),
          'APPEND_WEIGHTS': (
              'echo ">>> attaching stroopwafel mixture weights"\n'
              f'{common["PYTHON"]} append_weights.py --data-dir "${{DATA_DIR}}/MainRun/"')})
@@ -446,6 +506,8 @@ def main():
     ap.add_argument('--cluster', default=CLUSTER, help='override the cluster profile')
     ap.add_argument('--run-name', default=RUN_NAME, help='override RUN_NAME')
     ap.add_argument('--output-root', default=None, help='override OUTPUT_ROOT')
+    ap.add_argument('--subdir', default=None,
+                    help="override RUN_SUBDIR ('auto', a literal path, or '' for none)")
     ap.add_argument('--only', nargs='+', metavar='SIMNAME',
                     help='run only these variations (by simname)')
     ap.add_argument('--list', action='store_true',
@@ -460,9 +522,10 @@ def main():
 
     profile = load_cluster(args.cluster)
     output_root = args.output_root or OUTPUT_ROOT or profile['output_root']
+    subdir = resolve_subdir(args.subdir if args.subdir is not None else RUN_SUBDIR, profile)
     variations = load_variations(args.only)
 
-    print(f"output root     : {output_root}")
+    print(f"output root     : {os.path.join(output_root, subdir)}")
     print(f"variations      : {len(variations)}")
     print(f"sampling        : {NUM_SYSTEMS:.3g} systems, {NUM_CORES} cores, "
           f"{NUM_PER_CORE} per batch, hits = {SYS_INT}"
@@ -470,7 +533,7 @@ def main():
     check_walltime(MAINRUN_WALLTIME, profile.get('max_walltime', '99-00:00:00'), 'MainRun')
 
     submitted = [r for v in variations
-                 if (r := submit_one(v, profile, args, output_root))]
+                 if (r := submit_one(v, profile, args, output_root, subdir))]
 
     print(f"\ndone. {len(submitted)} run(s) set up.")
     if submitted:

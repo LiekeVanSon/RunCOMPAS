@@ -27,19 +27,26 @@ extra_sbatch: []
 # Where COMPAS is installed (must contain src/COMPAS)
 compas_root: "/vol/astro8/lvanson/lvanson/Programs/COMPAS"
 
-# Where simulation output goes -- CHANGE THIS TO YOUR OWN PATH.
+# --- storage on coma is two-tier: read this before changing it ---------------
 #
-# !! IMPORTANT on coma: the /vol/astro* NFS volumes are exported READ-ONLY to
-# !! the compute nodes. You can write there from the coma login node, but a
-# !! slurm job cannot. Pointing output_root at /vol/astro8 makes every job die
-# !! instantly with slurm ExitCode 0:53 ("cannot open output file") and an empty
-# !! logs/ directory.
+# !! /vol/astro8 CANNOT be output_root. The /vol/astro* NFS volumes are exported
+# !! READ-ONLY to the compute nodes. The login node can write there, so creating
+# !! the run directory succeeds -- and then every job dies instantly with slurm
+# !! ExitCode 0:53 ("cannot open output file") and an empty logs/ directory.
+# !!
+# !! The routes around it are all closed too: astro8-srv refuses user logins,
+# !! and coma's sshd requires 2FA, so a batch job can never scp anything out.
 #
-# $HOME *is* writable from the compute nodes and is shared across them, so it is
-# the correct choice here -- but note it is only ~25 GB, which is fine for tests
-# and small runs and NOT enough for a production population.
-# See docs/06_troubleshooting.md for the options for large runs.
-output_root: "/home/lvanson/CompasOutput"
+# So: jobs write to output_root (must be writable from compute nodes), and you
+# move finished runs to archive_root yourself, from the LOGIN NODE:
+#
+#     python3 archive_run.py --list         # what is using space
+#     python3 archive_run.py <run_name>     # move it to astro8
+#
+# $HOME is the only shared filesystem the compute nodes can write. It is ~25 GB,
+# so archive between runs. CHANGE BOTH PATHS TO YOUR OWN.
+output_root:  "/home/lvanson/CompasOutput"
+archive_root: "/vol/astro8/lvanson/lvanson/CompasOutput"
 
 # Node-local disk for simulation I/O. coma explicitly asks jobs to use this:
 # the /vol NFS volumes have high latency and cope badly with many concurrent

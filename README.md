@@ -75,11 +75,14 @@ RunCOMPAS/
 ├── Submit_GridRun.py           MODE 1 driver  <- edit the SETTINGS block, run
 ├── Submit_StroopwafelRun.py    MODE 2 driver  <- edit the SETTINGS block, run
 ├── requirements.txt            python dependencies -> your venv
+├── archive_run.py              move finished runs to long-term storage
+├── benchmark_run.py            what did a run actually cost?
 │
 ├── clusters/                   machine-specific settings
 │   ├── coma.yaml                 partitions, module loads, paths
 │   ├── rusty.yaml
-│   └── TEMPLATE.yaml             copy this to add your cluster
+│   ├── TEMPLATE.yaml             copy this to add your cluster
+│   └── BENCHMARKS.md             measured cost of real runs
 │
 ├── masterfolder/               copied into every run directory
 │   ├── compasConfig.yaml         COMPAS physics settings  <- your science lives here

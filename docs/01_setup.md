@@ -28,11 +28,11 @@ between versions, and a config file from an older version will not necessarily
 work with a newer binary. See [§5](#5-make-your-config-match-your-compas-version).
 You might even want to make a branch of the specific COMPAS version you are using if you are running production runs, so you know for sure you can get back to this version easily. 
 
-> On `coma` my build is at
+<!-- > On `coma` my build is at
 > `/vol/astro8/lvanson/lvanson/Programs/COMPAS` and this is already set in
 > `clusters/coma.yaml`, so you do not need your own build to get started.
 
-(TODO: create a shared build at /vol/optcoma)
+(TODO: create a shared build at /vol/optcoma) -->
 ---
 
 ## 2. Make your own python environment
@@ -86,24 +86,40 @@ script, and refuse to submit if the path doesn't exist.
 
 Skip this if you only want plain grid runs.
 
-**Use a git clone.** The PyPI package (1.1.0) installs fine, but the interface
-COMPAS ships alongside it does not run at all against COMPAS v03.29.05 — see
-[03_stroopwafel_runs.md](03_stroopwafel_runs.md#which-stroopwafel) for what was
-tested and why. A clone also lets you fix the sampler when you need to:
+**Clone the `updates_and_comments_lieke` branch.** Not `master`, and not the
+PyPI package:
 
 ```bash
-git clone https://github.com/lokiysh/stroopwafel ~/Programs/stroopwafel
+git clone -b updates_and_comments_lieke \
+    https://github.com/lokiysh/stroopwafel ~/Programs/stroopwafel
 ```
 
-then set the path in your cluster profile:
+Check it imports:
+
+```bash
+PYTHONPATH=~/Programs/stroopwafel python -c "import stroopwafel; print('stroopwafel OK')"
+```
+
+Then point your cluster profile at it:
 
 ```yaml
 stroopwafel_path: "~/Programs/stroopwafel"
 ```
 
-The job scripts export this as `STROOPWAFEL_PATH` and
-`stroopwafel_interface.py` puts it on `sys.path`, so the clone does not need
-installing.
+The job scripts export that as `STROOPWAFEL_PATH` and `stroopwafel_interface.py`
+puts it on `sys.path`, so the clone does **not** need installing — and you can
+edit the sampler in place when you need to.
+
+<!-- > On `coma` a clone of this branch already exists at
+> `/vol/astro8/lvanson/lvanson/Programs/stroopwafel`, and `clusters/coma.yaml`
+> points at it. You can skip this section entirely. -->
+
+Details and the measured numbers are in
+[03_stroopwafel_runs.md](03_stroopwafel_runs.md#stroopwafel-versions). Every change was checked to leave the maths/results identical.
+
+The `stroopwafel_interface.py` COMPAS ships (`$COMPAS_ROOT_DIR/compas_python_utils/preprocessing/stroopwafelInterface.py`)
+is a separate matter: it also does not run against v03.29.05, and even repaired it has adaptive sampling hardcoded off. 
+Use `masterfolder/MainRun/stroopwafel_interface.py` from this repo instead.
 
 
 ---

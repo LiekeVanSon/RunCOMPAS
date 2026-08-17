@@ -98,6 +98,7 @@ RunCOMPAS/
 │   ├── CosmicIntegration/
 │   └── slurms/                   job script templates (@@PLACEHOLDER@@ filled at submit)
 │
+├── tools/                      verify + profile the stroopwafel path
 ├── docs/                       ← start here
 └── legacy/                     the original project-specific scripts, for reference
 ```

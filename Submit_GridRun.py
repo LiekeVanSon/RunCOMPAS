@@ -50,7 +50,7 @@ REPO = os.path.dirname(os.path.abspath(__file__))
 # ===========================================================================
 
 # --- what to call this run, and where it goes ------------------------------
-RUN_NAME = "N1e6_test_fid"
+RUN_NAME = "N1e6_PPISN_HENDRIKS"
 # Leave as None to use output_root from your cluster profile.
 OUTPUT_ROOT = "/home/lvanson/CompasOutput"
 
@@ -68,9 +68,9 @@ RUN_SUBDIR = "auto"
 CLUSTER = 'coma'
 
 # --- how big is the run, and how is it chopped up? -------------------------
-N_BINARIES = int(1e6)     # total systems to evolve
-N_BATCHES = 100           # = number of slurm array tasks
-MAX_CONCURRENT = 25       # cap on tasks running at once (be kind to the queue)
+N_BINARIES = int(1e7)     # total systems to evolve
+N_BATCHES = 200           # = number of slurm array tasks
+MAX_CONCURRENT = 40       # cap on tasks running at once (be kind to the queue)
 SEED_BASE = 0             # COMPAS random seed of the very first system
 
 # --- optional grid file ----------------------------------------------------
@@ -90,7 +90,7 @@ GRID_FILE = None
 # One task evolves N_BINARIES/N_BATCHES systems. Time it on a small run first:
 # submit with N_BINARIES=1000, N_BATCHES=1 and look at the log.
 MAINRUN_WALLTIME = "0-04:30:00"
-MAINRUN_MEMORY = "2G"
+MAINRUN_MEMORY = "16G"
 
 # --- which stages to submit -------------------------------------------------
 RUN_MAINRUN = True

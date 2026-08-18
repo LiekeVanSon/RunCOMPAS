@@ -9,9 +9,16 @@
 #  see the results of the explore phase before it knows where to draw the
 #  refine samples. So it runs as ONE job that itself spawns --num_cores COMPAS
 #  processes in parallel. That is why --ntasks below must be >= num_cores.
+#
+#  Each batch is launched as `srun -n 1 -c 1` INSIDE this allocation, so the
+#  workers can in principle be spread over several nodes. They can only do that
+#  when they share a filesystem: with scratch_root set, WORK_DIR is node-local
+#  disk, and a worker on another node would write where this script cannot see
+#  it. The driver therefore pins the job to one node whenever scratch_root is
+#  set, and only allows multiple nodes when the work directory is shared.
 # =====================================================================
 #SBATCH --job-name=@@JOB_NAME@@
-#SBATCH --nodes=1
+@@NODES@@
 #SBATCH --ntasks=@@NTASKS@@
 #SBATCH --output=@@LOG_DIR@@/stroopwafel_%j.out
 #SBATCH --error=@@LOG_DIR@@/stroopwafel_%j.err

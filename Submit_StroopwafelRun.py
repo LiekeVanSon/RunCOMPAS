@@ -55,7 +55,7 @@ REPO = os.path.dirname(os.path.abspath(__file__))
 
 # --- what to call this run, and where it goes ------------------------------
 # Each variation appends its simname:  N1e6_DNS_fid, N1e6_DNS_CE_alpha05, ...
-RUN_NAME = "N1e6_DNS"
+RUN_NAME = "N1e6_AIS_BBH_PPISN_HENDRIKS"
 OUTPUT_ROOT = None        # None = output_root from the cluster profile
 
 # --- optional extra directory level ----------------------------------------
@@ -72,7 +72,7 @@ CLUSTER = None            # None = auto-detect from hostname
 
 # --- the sampling ----------------------------------------------------------
 NUM_SYSTEMS = int(1e6)    # total systems, across all four stroopwafel phases
-NUM_CORES = 20            # COMPAS processes in parallel INSIDE the one job
+NUM_CORES = 23            # COMPAS processes in parallel inside node (max = 23 on Coma)
 NUM_PER_CORE = int(1e4)   # systems per batch
 SEED_BASE = 0
 MC_ONLY = False           # True = plain Monte Carlo, skip adapt/refine (no AIS)
@@ -80,7 +80,7 @@ MC_ONLY = False           # True = plain Monte Carlo, skip adapt/refine (no AIS)
 # What counts as a "hit". Must be one of the keys in SYSTEMS_OF_INTEREST in
 # masterfolder/MainRun/stroopwafel_interface.py:
 #   WDWD  MassiveWDWD  BBH  DNS  BHNS  MassiveWDWD_NSNS  AnyDCO
-SYS_INT = "DNS"
+SYS_INT = "BBH"
 
 # --- resources for the (single, long) stroopwafel job -----------------------
 # Rules of thumb from previous runs (Flatiron, cca partition):
@@ -109,8 +109,8 @@ CI_ARGS = ("--weight mixture_weight --keepRLOF_postCE --zstep 0.01 --sens O3 "
 # Run the same setup several times with different COMPAS physics. Each entry
 # gets its own output directory. Set to None to run a single unvaried run.
 # The file is a list of {"simname": ..., "overrides": {"--flag": value, ...}}.
-VARIATIONS_FILE = "masterfolder/simulation_variations.json"
-# VARIATIONS_FILE = None
+# VARIATIONS_FILE = "masterfolder/simulation_variations.json"
+VARIATIONS_FILE = None
 
 # Overrides applied to EVERY variation. Stroopwafel needs these two: it writes
 # one grid line per system, so leaving --add-options-to-sysparms at its 'GRID'
@@ -119,6 +119,7 @@ BASE_OVERRIDES = {
     "--add-options-to-sysparms": "NEVER",
     "--logfile-definitions": "COMPAS_Output_Definitions.txt",
     "--logfile-type": "HDF5",
+    "--pulsational-pair-instability-prescription": "HENDRIKS",
 }
 
 
@@ -129,6 +130,59 @@ BASE_OVERRIDES = {
 #  (This machinery is deliberately duplicated in Submit_GridRun.py so that   #
 #   each driver is self-contained and can be copied on its own.)             #
 # ===========================================================================
+
+def max_cores_per_node(partition):
+    """
+    Largest core count of any node in the partition, via sinfo.
+
+    Used to catch an impossible request before sbatch does, because sbatch's
+    version of the message ("CPU count per node can not be satisfied") does not
+    tell you what the limit actually is.
+    """
+    try:
+        # -N lists every node separately. Without it sinfo aggregates and
+        # reports e.g. "16+", which understates a partition of mixed nodes.
+        out = subprocess.run(['sinfo', '-h', '-N', '-p', partition, '-o', '%c'],
+                             capture_output=True, text=True, timeout=60)
+        counts = [int(c.strip().rstrip('+')) for c in out.stdout.split() if c.strip().rstrip('+').isdigit()]
+        return max(counts) if counts else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def node_directive(profile, ntasks):
+    """
+    Decide whether this job may span nodes, and sanity-check the core count.
+
+    Stroopwafel launches each batch with `srun -n 1 -c 1` inside the allocation,
+    so tasks CAN land on other nodes -- but only safely if they all see the same
+    work directory. With scratch_root set that directory is node-local disk, so
+    the job must stay on one node.
+    """
+    scratch = (profile.get('scratch_root') or '').strip()
+    limit = max_cores_per_node(profile['partition'])
+
+    if not scratch:
+        # shared work directory: let slurm spread the tasks however it likes
+        if limit and ntasks > limit:
+            print(f"note            : {ntasks} tasks > {limit} cores on the largest "
+                  f"node, so this job will span nodes (fine: scratch_root is empty, "
+                  f"so all workers share {profile['output_root']})")
+        return ''
+
+    if limit and ntasks > limit:
+        raise SystemExit(
+            f"\nNUM_CORES = {ntasks - 1} needs {ntasks} cores on ONE node, but the "
+            f"largest node in partition '{profile['partition']}' has {limit}.\n\n"
+            f"The job cannot span nodes as configured, because scratch_root is set to "
+            f"'{scratch}',\nwhich is node-local disk -- a worker on another node would "
+            f"write its COMPAS output\nwhere the stroopwafel process cannot read it.\n\n"
+            f"Either:\n"
+            f"  * set NUM_CORES = {limit - 1} or less (recommended -- keeps fast local I/O), or\n"
+            f"  * clear scratch_root in {profile['_path']} to let the job span nodes,\n"
+            f"    at the cost of doing all simulation I/O over the shared filesystem.")
+    return '#SBATCH --nodes=1'
+
 
 def resolve_subdir(subdir, profile):
     """
@@ -397,7 +451,7 @@ def stage_files(run_dir, overrides):
 def load_variations(only=None):
     """Read the variations file, or return a single unvaried run."""
     if not VARIATIONS_FILE:
-        return [{'simname': 'fid', 'overrides': {}}]
+        return [{'simname': '', 'overrides': {}}]
 
     path = (VARIATIONS_FILE if os.path.isabs(VARIATIONS_FILE)
             else os.path.join(REPO, VARIATIONS_FILE))
@@ -445,6 +499,7 @@ def submit_one(variation, profile, args, output_root, subdir=''):
          'JOB_NAME': f'sw_{run_name}'[:60],
          # stroopwafel forks NUM_CORES workers and needs a core for itself
          'NTASKS': NUM_CORES + 1,
+         'NODES': node_directive(profile, NUM_CORES + 1),
          'WALLTIME': MAINRUN_WALLTIME,
          'MEMORY': MAINRUN_MEMORY,
          'STROOPWAFEL_PATH': profile.get('stroopwafel_path') or '',

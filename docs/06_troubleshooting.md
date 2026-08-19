@@ -334,6 +334,18 @@ full relative path or by its bare name when unambiguous, and use `--from` /
 It refuses to touch a run that still has jobs in the queue or has no merged
 output yet, so you cannot archive a run out from under itself.
 
+Transfers go through `rsync`, which matters at these sizes:
+
+- an interrupted move **resumes** — re-run with `--force` and only the missing
+  files are sent, rather than starting a 20 GB copy again;
+- you get progress instead of a silent ten-minute wait;
+- and a move **never deletes the source until the destination is verified** to
+  match on file count and total bytes. If the transfer fails, the original is
+  untouched and you simply run it again.
+
+`--copy` keeps the original; `--checksum` compares file contents rather than
+size and mtime (slow, but exhaustive if you are ever unsure).
+
 Keep an eye on `--list`. At ~4 KB/system, `$HOME` holds a few 1e6-system runs
 comfortably, but a single 5e6-system run is ~20 GB and a 19-variation sweep is
 hundreds of GB. Archive between runs, and for a big sweep archive as you go.

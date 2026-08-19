@@ -78,7 +78,11 @@ SCRATCH_ROOT="@@SCRATCH_ROOT@@"
 OUT_NAME="batch_${TASK}"
 
 if [ -n "${SCRATCH_ROOT}" ]; then
-    WORK_DIR="${SCRATCH_ROOT}/${USER:-$(whoami)}/compas_${SLURM_ARRAY_JOB_ID}_${TASK}"
+    # SLURM_JOB_ID does NOT change when a job is requeued, so a restarted job
+    # landing on the SAME node would reuse a work directory still holding the
+    # previous attempt's batches -- and stroopwafel appends to samples.csv,
+    # which would silently duplicate rows. SLURM_RESTART_COUNT keeps attempts apart.
+    WORK_DIR="${SCRATCH_ROOT}/${USER:-$(whoami)}/compas_${SLURM_ARRAY_JOB_ID}_${TASK}${SLURM_RESTART_COUNT:+_r${SLURM_RESTART_COUNT}}"
     mkdir -p "${WORK_DIR}"
 
     # Copy results back and clean up on ANY exit -- including failure or

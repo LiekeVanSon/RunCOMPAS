@@ -442,11 +442,23 @@ def main():
     EXTRA_PARAMS = extra_params
     HDF5 = True
 
-    # Refuse to silently overwrite a finished run.
+    # Refuse to silently overwrite or, worse, silently ADD TO a previous run.
+    # stroopwafel appends to samples.csv, so starting in a folder that already
+    # holds one produces a file with two runs' rows in it -- which nothing
+    # downstream detects.
     if os.path.exists(os.path.join(OUTPUT_FOLDER, 'COMPAS_Output.h5')):
         raise SystemExit(
             f"{OUTPUT_FOLDER} already contains COMPAS_Output.h5 -- this run looks "
             "finished. Move it aside or pick a new run name before rerunning.")
+    leftovers = [f for f in ('samples.csv', 'distributions.csv')
+                 if os.path.isfile(os.path.join(OUTPUT_FOLDER, f))]
+    if leftovers:
+        raise SystemExit(
+            f"{OUTPUT_FOLDER} already contains {', '.join(leftovers)} from an earlier "
+            f"attempt.\nStroopwafel APPENDS to samples.csv, so continuing here would "
+            f"mix two runs together\nand nothing downstream would notice. Move the "
+            f"directory aside, or delete those files if\nthe earlier attempt is of no "
+            f"interest.")
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
     COMMAND_OPTIONS = build_command_options(True, namespace.config_file, OUTPUT_FOLDER)

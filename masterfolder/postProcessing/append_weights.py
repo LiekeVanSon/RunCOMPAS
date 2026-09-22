@@ -152,7 +152,7 @@ def main(data_dir = None, Stroopwafel_name = None, Raw_COMPAS_name = None, Weigh
         elif group == 'BSE_Double_Compact_Objects':
             #make sure to point from SYS to DCO
             #and take the data from your'BSE_System_Parameters (that you shouldve started with!)
-            SYS_to_DCO = np.in1d(h_new['BSE_System_Parameters']['SEED'][()], h_new['BSE_Double_Compact_Objects']['SEED']) #Bool to point SYS to DCO
+            SYS_to_DCO = np.isin(h_new['BSE_System_Parameters']['SEED'][()], h_new['BSE_Double_Compact_Objects']['SEED']) #Bool to point SYS to DCO
             data        = h_new['BSE_System_Parameters']['mixture_weight'][SYS_to_DCO]#re-order samples.cvs
 
         # add weights to new hdf5 file

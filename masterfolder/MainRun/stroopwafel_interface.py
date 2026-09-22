@@ -72,7 +72,7 @@ def create_dimensions():
     # Dimension names must be REAL COMPAS OPTION NAMES: stroopwafel writes them
     # verbatim into the grid file it hands to COMPAS. Naming one 'Mass_1' gives
     # a grid COMPAS silently rejects, and a run that evolves nothing.
-    m1 = classes.Dimension('--initial-mass-1', 5.0, 150, sampler.kroupa, prior.kroupa)
+    m1 = classes.Dimension('--initial-mass-1', 10.0, 150, sampler.kroupa, prior.kroupa)
     q = classes.Dimension('q', 0.01, 1, sampler.uniform, prior.uniform, should_print=False)
     a = classes.Dimension('--semi-major-axis', .01, 1000, sampler.flat_in_log, prior.flat_in_log)
     return [m1, q, a]

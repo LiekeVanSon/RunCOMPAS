@@ -55,7 +55,7 @@ REPO = os.path.dirname(os.path.abspath(__file__))
 
 # --- what to call this run, and where it goes ------------------------------
 # Each variation appends its simname:  N1e6_DNS_fid, N1e6_DNS_CE_alpha05, ...
-RUN_NAME = "N1e6_AIS_BBH_PPISN_HENDRIKS"
+RUN_NAME = "N1e6_AIS_BBH_PPISN_HENDRIKS_M10"
 OUTPUT_ROOT = None        # None = output_root from the cluster profile
 
 # --- optional extra directory level ----------------------------------------
@@ -72,7 +72,7 @@ CLUSTER = None            # None = auto-detect from hostname
 
 # --- the sampling ----------------------------------------------------------
 NUM_SYSTEMS = int(1e6)    # total systems, across all four stroopwafel phases
-NUM_CORES = 23            # COMPAS processes in parallel inside node (max = 23 on Coma)
+NUM_CORES = 16            # COMPAS processes in parallel inside node (max = 23 on Coma)
 NUM_PER_CORE = int(1e4)   # systems per batch
 SEED_BASE = 0
 MC_ONLY = False           # True = plain Monte Carlo, skip adapt/refine (no AIS)
@@ -91,19 +91,30 @@ MAINRUN_WALLTIME = "1-00:00:00"
 MAINRUN_MEMORY = "32G"
 
 # --- which stages to submit -------------------------------------------------
-RUN_MAINRUN = True
+RUN_MAINRUN = False
 RUN_POSTPROCESSING = True
-RUN_COSMIC_INTEGRATION = False
+RUN_COSMIC_INTEGRATION = True
 
 PP_WALLTIME = "0-04:00:00"
 PP_MEMORY = "32G"
 
 CI_WALLTIME = "0-02:00:00"
 CI_MEMORY = "16G"
-CI_ARGS = ("--weight mixture_weight --keepRLOF_postCE --zstep 0.01 --sens O3 "
-           "--m1min 5.0 --dco_type all --maxzdet 8 "
+CI_ARGS = ("--weight mixture_weight --zstep 0.01 --sens O3 "
+           "--m1min {m1min} --dco_type all --maxzdet 8 "
            "--mu0 0.025 --muz -0.049 --sigma0 1.129 --sigmaz 0.048 --alpha -1.79 "
            "--aSF 0.017 --bSF 1.487 --cSF 4.442 --dSF 5.886")
+        #    --keepRLOF_postCE
+
+# --m1min must equal --initial-mass-1's lower bound in stroopwafel_interface.py:
+# it feeds totalMassEvolvedPerZ's rate normalization, so it describes the data, not a model choice,
+# and has to match whatever MainRun actually sampled: read it instead of hardcoding 
+def stroopwafel_m1min(interface_path):
+    with open(interface_path) as f:
+        match = re.search(r"'--initial-mass-1',\s*([\d.]+)", f.read())
+    if not match:
+        raise SystemExit(f"Could not find --initial-mass-1 in {interface_path}")
+    return match.group(1)
 
 # --- variations -------------------------------------------------------------
 # Run the same setup several times with different COMPAS physics. Each entry
@@ -431,21 +442,40 @@ def update_config_file(path, overrides):
 
 
 def stage_files(run_dir, overrides):
-    """Create the run directory tree, copy masterfolder in, apply overrides."""
+    """
+    Create the run directory tree and copy in the stages being submitted.
+
+    Each stage is copied only when its RUN_* flag is set. MainRun's
+    stroopwafel_interface.py and compasConfig.yaml are the only record of what
+    actually produced the data, so a postProcessing/CI-only resubmit must not
+    overwrite them with whatever masterfolder happens to hold today.
+    """
     master = os.path.join(REPO, 'masterfolder')
     for sub in ('MainRun', 'postProcessing', 'CosmicIntegration', 'logs'):
         os.makedirs(os.path.join(run_dir, sub), exist_ok=True)
 
-    for sub in ('MainRun', 'postProcessing', 'CosmicIntegration'):
-        shutil.copytree(os.path.join(master, sub), os.path.join(run_dir, sub),
-                        dirs_exist_ok=True)
+    if RUN_MAINRUN:
+        shutil.copytree(os.path.join(master, 'MainRun'),
+                        os.path.join(run_dir, 'MainRun'), dirs_exist_ok=True)
+        config_dest = os.path.join(run_dir, 'MainRun', 'compasConfig.yaml')
+        shutil.copy(os.path.join(master, 'compasConfig.yaml'), config_dest)
+        update_config_file(config_dest, overrides)
+    elif not os.path.isfile(os.path.join(run_dir, 'MainRun', 'stroopwafel_interface.py')):
+        raise SystemExit(
+            f"RUN_MAINRUN is False, but there is no previous MainRun in\n"
+            f"    {os.path.join(run_dir, 'MainRun')}\n"
+            f"so there is nothing to postprocess. Set RUN_MAINRUN = True to "
+            f"simulate it first, or check RUN_NAME points at the run you meant.")
 
-    config_dest = os.path.join(run_dir, 'MainRun', 'compasConfig.yaml')
-    shutil.copy(os.path.join(master, 'compasConfig.yaml'), config_dest)
-    update_config_file(config_dest, overrides)
+    if RUN_POSTPROCESSING:
+        shutil.copytree(os.path.join(master, 'postProcessing'),
+                        os.path.join(run_dir, 'postProcessing'), dirs_exist_ok=True)
+
+    if RUN_COSMIC_INTEGRATION:
+        shutil.copytree(os.path.join(master, 'CosmicIntegration'),
+                        os.path.join(run_dir, 'CosmicIntegration'), dirs_exist_ok=True)
 
     shutil.copy(os.path.abspath(__file__), os.path.join(run_dir, os.path.basename(__file__)))
-    return config_dest
 
 
 def load_variations(only=None):
@@ -489,59 +519,67 @@ def submit_one(variation, profile, args, output_root, subdir=''):
         for k, v in variation['overrides'].items():
             print(f"  override  {k}: {v}")
 
+    # stage_files() leaves MainRun/ holding the interface this run is actually
+    # sampled with -- freshly copied for a new MainRun, the original otherwise.
+    interface = os.path.join(run_dir, 'MainRun', 'stroopwafel_interface.py')
+    m1min = stroopwafel_m1min(interface)
+    print(f"  CI --m1min      : {m1min}  (from {interface})")
+    ci_args = CI_ARGS.format(m1min=m1min)
+
     slurms = os.path.join(REPO, 'masterfolder', 'slurms')
     common = sbatch_common(profile, run_dir, profile['name'])
 
-    main_script = render(
-        os.path.join(slurms, 'COMPAS_stroopwafel.sbatch'),
-        os.path.join(run_dir, 'MainRun', 'COMPAS_stroopwafel.sbatch'),
-        {**common,
-         'JOB_NAME': f'sw_{run_name}'[:60],
-         # stroopwafel forks NUM_CORES workers and needs a core for itself
-         'NTASKS': NUM_CORES + 1,
-         'NODES': node_directive(profile, NUM_CORES + 1),
-         'WALLTIME': MAINRUN_WALLTIME,
-         'MEMORY': MAINRUN_MEMORY,
-         'STROOPWAFEL_PATH': profile.get('stroopwafel_path') or '',
-         'NUM_SYSTEMS': NUM_SYSTEMS,
-         'NUM_CORES': NUM_CORES,
-         'NUM_PER_CORE': NUM_PER_CORE,
-         'SYS_INT': SYS_INT,
-         'SEED_BASE': SEED_BASE,
-         'MC_ONLY': '--mc_only' if MC_ONLY else ''})
-
-    pp_script = render(
-        os.path.join(slurms, 'COMPAS_PP.sbatch'),
-        os.path.join(run_dir, 'postProcessing', 'COMPAS_PP.sbatch'),
-        {**common,
-         'JOB_NAME': f'pp_{run_name}'[:60],
-         'WALLTIME': PP_WALLTIME,
-         'MEMORY': PP_MEMORY,
-         'H5_CHUNK': h5_chunk_size(NUM_SYSTEMS),
-         'APPEND_WEIGHTS': (
-             'echo ">>> attaching stroopwafel mixture weights"\n'
-             f'{common["PYTHON"]} append_weights.py --data-dir "${{DATA_DIR}}/MainRun/"')})
-
-    ci_script = render(
-        os.path.join(slurms, 'CosmicIntegration.sbatch'),
-        os.path.join(run_dir, 'CosmicIntegration', 'CosmicIntegration.sbatch'),
-        {**common,
-         'JOB_NAME': f'ci_{run_name}'[:60],
-         'WALLTIME': CI_WALLTIME,
-         'MEMORY': CI_MEMORY,
-         'INPUT_H5': 'COMPAS_Output_wWeights.h5',
-         'CI_ARGS': CI_ARGS})
-
+    # Each script is written only for the stage being submitted: rendering a
+    # stage you are not running would overwrite the sbatch that did run it.
     job_ids = {}
     dep = None
     if RUN_MAINRUN:
+        main_script = render(
+            os.path.join(slurms, 'COMPAS_stroopwafel.sbatch'),
+            os.path.join(run_dir, 'MainRun', 'COMPAS_stroopwafel.sbatch'),
+            {**common,
+             'JOB_NAME': f'sw_{run_name}'[:60],
+             # stroopwafel forks NUM_CORES workers and needs a core for itself
+             'NTASKS': NUM_CORES + 1,
+             'NODES': node_directive(profile, NUM_CORES + 1),
+             'WALLTIME': MAINRUN_WALLTIME,
+             'MEMORY': MAINRUN_MEMORY,
+             'STROOPWAFEL_PATH': profile.get('stroopwafel_path') or '',
+             'NUM_SYSTEMS': NUM_SYSTEMS,
+             'NUM_CORES': NUM_CORES,
+             'NUM_PER_CORE': NUM_PER_CORE,
+             'SYS_INT': SYS_INT,
+             'SEED_BASE': SEED_BASE,
+             'MC_ONLY': '--mc_only' if MC_ONLY else ''})
         dep = submit(main_script, dry_run=args.dry_run)
         job_ids['MainRun'] = dep
+
     if RUN_POSTPROCESSING:
+        pp_script = render(
+            os.path.join(slurms, 'COMPAS_PP.sbatch'),
+            os.path.join(run_dir, 'postProcessing', 'COMPAS_PP.sbatch'),
+            {**common,
+             'JOB_NAME': f'pp_{run_name}'[:60],
+             'WALLTIME': PP_WALLTIME,
+             'MEMORY': PP_MEMORY,
+             'H5_CHUNK': h5_chunk_size(NUM_SYSTEMS),
+             'APPEND_WEIGHTS': (
+                 'echo ">>> attaching stroopwafel mixture weights"\n'
+                 f'{common["PYTHON"]} append_weights.py --data-dir "${{DATA_DIR}}/MainRun/"')})
         pid = submit(pp_script, dependency=dep, dry_run=args.dry_run)
         job_ids['postProcessing'] = pid
         dep = pid or dep
+
     if RUN_COSMIC_INTEGRATION:
+        ci_script = render(
+            os.path.join(slurms, 'CosmicIntegration.sbatch'),
+            os.path.join(run_dir, 'CosmicIntegration', 'CosmicIntegration.sbatch'),
+            {**common,
+             'JOB_NAME': f'ci_{run_name}'[:60],
+             'WALLTIME': CI_WALLTIME,
+             'MEMORY': CI_MEMORY,
+             'INPUT_H5': 'COMPAS_Output_wWeights.h5',
+             'CI_ARGS': ci_args})
         job_ids['CosmicIntegration'] = submit(ci_script, dependency=dep, dry_run=args.dry_run)
 
     if not args.dry_run:

@@ -50,9 +50,10 @@ REPO = os.path.dirname(os.path.abspath(__file__))
 # ===========================================================================
 
 # --- what to call this run, and where it goes ------------------------------
-RUN_NAME = "N1e6_PPISN_HENDRIKS"
+RUN_NAME = "N1e7_PPISN_HENDRIKS"
 # Leave as None to use output_root from your cluster profile.
-OUTPUT_ROOT = "/home/lvanson/CompasOutput"
+OUTPUT_ROOT = "/vol/astro8/lvanson/lvanson/CompasOutput/v03.29.05/"
+# "/home/lvanson/CompasOutput"
 
 # --- optional extra directory level ----------------------------------------
 # Runs land in  <output_root>/<RUN_SUBDIR>/<RUN_NAME>.
@@ -61,7 +62,7 @@ OUTPUT_ROOT = "/home/lvanson/CompasOutput"
 #   None        -> no extra level
 # archive_run.py mirrors this structure into archive_root, so the working and
 # archived layouts always match.
-RUN_SUBDIR = "auto"
+RUN_SUBDIR = None#"auto"
 
 # --- which cluster profile to use ------------------------------------------
 # None = auto-detect from hostname against clusters/*.yaml
@@ -93,21 +94,23 @@ MAINRUN_WALLTIME = "0-04:30:00"
 MAINRUN_MEMORY = "16G"
 
 # --- which stages to submit -------------------------------------------------
-RUN_MAINRUN = True
-RUN_POSTPROCESSING = True
-RUN_COSMIC_INTEGRATION = False
+RUN_MAINRUN = False
+RUN_POSTPROCESSING = False
+RUN_COSMIC_INTEGRATION = True
 
 PP_WALLTIME = "0-03:00:00"
 PP_MEMORY = "16G"
 
-CI_WALLTIME = "0-02:00:00"
+CI_WALLTIME = "0-03:00:00"
 CI_MEMORY = "16G"
 # Arguments to FastCosmicIntegration.py. Defaults are the van Son et al. (2022)
 # best-fit metallicity-specific star formation history.
-CI_ARGS = ("--weight mixture_weight --keepRLOF_postCE --zstep 0.01 --sens O3 "
+CI_ARGS = ("--weight mixture_weight --zstep 0.01 --sens O3 "
            "--m1min 5.0 --dco_type all --maxzdet 8 "
            "--mu0 0.025 --muz -0.049 --sigma0 1.129 --sigmaz 0.048 --alpha -1.79 "
-           "--aSF 0.017 --bSF 1.487 --cSF 4.442 --dSF 5.886")
+           "--aSF 0.017 --bSF 1.487 --cSF 4.442 --dSF 5.886 "
+           # write rates to their own h5 instead of growing COMPAS_Output.h5;
+           "--rates_path ${DATA_DIR}/CosmicIntegration/Rates.h5")
 
 # --- physics variations -----------------------------------------------------
 # Run the same setup several times with different COMPAS physics. Each entry
@@ -455,23 +458,46 @@ def load_variations(only=None):
 
 
 def stage_files(run_dir, grid_file, overrides=None):
-    """Create the run directory tree and copy masterfolder into it."""
+    """
+    Create the run directory tree and copy in the stages being submitted.
+
+    Each stage is copied only when its RUN_* flag is set. MainRun's
+    compasConfig.yaml (and grid file) are the only record of what actually
+    produced the data, so a postProcessing/CI-only resubmit must not overwrite
+    them with whatever masterfolder happens to hold today.
+    """
     master = os.path.join(REPO, 'masterfolder')
     for sub in ('MainRun', 'postProcessing', 'CosmicIntegration', 'logs'):
         os.makedirs(os.path.join(run_dir, sub), exist_ok=True)
 
-    for sub in ('MainRun', 'postProcessing', 'CosmicIntegration'):
-        shutil.copytree(os.path.join(master, sub), os.path.join(run_dir, sub),
-                        dirs_exist_ok=True)
     config_dest = os.path.join(run_dir, 'MainRun', 'compasConfig.yaml')
-    shutil.copy(os.path.join(master, 'compasConfig.yaml'), config_dest)
-    update_config_file(config_dest, overrides)
+    if RUN_MAINRUN:
+        shutil.copytree(os.path.join(master, 'MainRun'),
+                        os.path.join(run_dir, 'MainRun'), dirs_exist_ok=True)
+        shutil.copy(os.path.join(master, 'compasConfig.yaml'), config_dest)
+        update_config_file(config_dest, overrides)
+    elif not os.path.isfile(config_dest):
+        raise SystemExit(
+            f"RUN_MAINRUN is False, but there is no previous MainRun in\n"
+            f"    {os.path.join(run_dir, 'MainRun')}\n"
+            f"so there is nothing to postprocess. Set RUN_MAINRUN = True to "
+            f"simulate it first, or check RUN_NAME/OUTPUT_ROOT/RUN_SUBDIR point at "
+            f"the run you meant.")
+
+    if RUN_POSTPROCESSING:
+        shutil.copytree(os.path.join(master, 'postProcessing'),
+                        os.path.join(run_dir, 'postProcessing'), dirs_exist_ok=True)
+
+    if RUN_COSMIC_INTEGRATION:
+        shutil.copytree(os.path.join(master, 'CosmicIntegration'),
+                        os.path.join(run_dir, 'CosmicIntegration'), dirs_exist_ok=True)
+
     # keep a copy of the driver next to the data, so a run is reproducible
     shutil.copy(os.path.abspath(__file__), os.path.join(run_dir, os.path.basename(__file__)))
 
     if grid_file:
         dest = os.path.join(run_dir, 'MainRun', os.path.basename(grid_file))
-        if os.path.abspath(grid_file) != os.path.abspath(dest):
+        if RUN_MAINRUN and os.path.abspath(grid_file) != os.path.abspath(dest):
             shutil.copy(grid_file, dest)
         return dest
     return None
@@ -517,7 +543,7 @@ def submit_one(variation, profile, args, output_root, subdir,
         print(f"  last task takes the remainder "
               f"({n_total - (n_tasks - 1) * batch_size})")
 
-    # ---- render the job scripts --------------------------------------------
+    # ---- job script inputs ------------------------------------------------
     slurms = os.path.join(REPO, 'masterfolder', 'slurms')
     common = sbatch_common(profile, run_dir, profile['name'])
 
@@ -527,58 +553,66 @@ def submit_one(variation, profile, args, output_root, subdir,
     else:
         slice_args = '--number-of-systems ${N_THIS}'
 
-    main_script = render(
-        os.path.join(slurms, 'COMPAS_grid.sbatch'),
-        os.path.join(run_dir, 'MainRun', 'COMPAS_grid.sbatch'),
-        {**common,
-         'JOB_NAME': f'grid_{run_name}'[:60],
-         'ARRAY_SPEC': f'0-{n_tasks - 1}%{MAX_CONCURRENT}',
-         'WALLTIME': MAINRUN_WALLTIME,
-         'MEMORY': MAINRUN_MEMORY,
-         'BATCH_SIZE': batch_size,
-         'N_TOTAL': n_total,
-         'SEED_BASE': SEED_BASE,
-         'SLICE_ARGS': slice_args})
-
-    pp_script = render(
-        os.path.join(slurms, 'COMPAS_PP.sbatch'),
-        os.path.join(run_dir, 'postProcessing', 'COMPAS_PP.sbatch'),
-        {**common,
-         'JOB_NAME': f'pp_{run_name}'[:60],
-         'WALLTIME': PP_WALLTIME,
-         'MEMORY': PP_MEMORY,
-         'H5_CHUNK': h5_chunk_size(n_total),
-         # a grid run samples from the birth distribution, so there are no
-         # stroopwafel weights to attach
-         'APPEND_WEIGHTS': 'echo ">>> grid run: no stroopwafel weights to append"'})
-
-    ci_script = render(
-        os.path.join(slurms, 'CosmicIntegration.sbatch'),
-        os.path.join(run_dir, 'CosmicIntegration', 'CosmicIntegration.sbatch'),
-        {**common,
-         'JOB_NAME': f'ci_{run_name}'[:60],
-         'WALLTIME': CI_WALLTIME,
-         'MEMORY': CI_MEMORY,
-         'INPUT_H5': 'COMPAS_Output.h5',
-         'CI_ARGS': CI_ARGS.replace('--weight mixture_weight ', '')})
-
-    # ---- submit the chain ---------------------------------------------------
+    # ---- render and submit the chain ---------------------------------------
+    # Only the stages being submitted get a (re)written job script, so the
+    # sbatch files of an earlier MainRun/postProcessing stay as they ran.
     job_ids = {}
     dep = None
     if RUN_MAINRUN:
+        main_script = render(
+            os.path.join(slurms, 'COMPAS_grid.sbatch'),
+            os.path.join(run_dir, 'MainRun', 'COMPAS_grid.sbatch'),
+            {**common,
+             'JOB_NAME': f'grid_{run_name}'[:60],
+             'ARRAY_SPEC': f'0-{n_tasks - 1}%{MAX_CONCURRENT}',
+             'WALLTIME': MAINRUN_WALLTIME,
+             'MEMORY': MAINRUN_MEMORY,
+             'BATCH_SIZE': batch_size,
+             'N_TOTAL': n_total,
+             'SEED_BASE': SEED_BASE,
+             'SLICE_ARGS': slice_args})
         dep = submit(main_script, dry_run=args.dry_run)
         job_ids['MainRun'] = dep
+
     if RUN_POSTPROCESSING:
+        pp_script = render(
+            os.path.join(slurms, 'COMPAS_PP.sbatch'),
+            os.path.join(run_dir, 'postProcessing', 'COMPAS_PP.sbatch'),
+            {**common,
+             'JOB_NAME': f'pp_{run_name}'[:60],
+             'WALLTIME': PP_WALLTIME,
+             'MEMORY': PP_MEMORY,
+             'H5_CHUNK': h5_chunk_size(n_total),
+             # a grid run samples from the birth distribution, so there are no
+             # stroopwafel weights to attach
+             'APPEND_WEIGHTS': 'echo ">>> grid run: no stroopwafel weights to append"'})
         pid = submit(pp_script, dependency=dep, dry_run=args.dry_run)
         job_ids['postProcessing'] = pid
         dep = pid or dep
+
     if RUN_COSMIC_INTEGRATION:
+        ci_script = render(
+            os.path.join(slurms, 'CosmicIntegration.sbatch'),
+            os.path.join(run_dir, 'CosmicIntegration', 'CosmicIntegration.sbatch'),
+            {**common,
+             'JOB_NAME': f'ci_{run_name}'[:60],
+             'WALLTIME': CI_WALLTIME,
+             'MEMORY': CI_MEMORY,
+             'INPUT_H5': 'COMPAS_Output.h5',
+             'CI_ARGS': CI_ARGS.replace('--weight mixture_weight ', '')})
         job_ids['CosmicIntegration'] = submit(ci_script, dependency=dep,
                                               dry_run=args.dry_run)
 
     if not args.dry_run:
-        with open(os.path.join(run_dir, 'job_ids.txt'), 'w') as f:
-            json.dump({k: v for k, v in job_ids.items() if v}, f, indent=2)
+        # merge into any earlier job_ids.txt, so a CI-only resubmit keeps the
+        # MainRun/postProcessing ids that produced the data
+        ids_path = os.path.join(run_dir, 'job_ids.txt')
+        previous = {}
+        if os.path.isfile(ids_path):
+            with open(ids_path) as f:
+                previous = json.load(f)
+        with open(ids_path, 'w') as f:
+            json.dump({**previous, **{k: v for k, v in job_ids.items() if v}}, f, indent=2)
 
     return run_dir
 

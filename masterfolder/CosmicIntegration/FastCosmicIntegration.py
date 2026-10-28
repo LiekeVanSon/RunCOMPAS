@@ -498,9 +498,10 @@ def find_detection_rate(path, dco_type="BBH", merger_output_filename=None, weigh
 
 def append_rates(path, detection_rate, formation_rate, merger_rate, redshifts, COMPAS, n_redshifts_detection,
     maxz=1., sensitivity="O1", dco_type="BHBH", mu0=0.035, muz=-0.23, sigma0=0.39, sigmaz=0., alpha=0.,
-    append_binned_by_z = False, redshift_binsize=0.1, cosmology=None):
+    append_binned_by_z = False, redshift_binsize=0.1, cosmology=None, out_path=None):
     """
         Append the formation rate, merger rate, detection rate and redshifts as a new group to your COMPAS output with weights hdf5 file
+        (or, if out_path is given, to that separate hdf5 file, leaving the COMPAS output untouched)
 
         Args:
             path                   --> [string] Path to the COMPAS file that contains the output
@@ -522,6 +523,7 @@ def append_rates(path, detection_rate, formation_rate, merger_rate, redshifts, C
 
             append_binned_by_z     --> [Bool] to save space, bin rates by redshiftbin and append binned rates
             redshift_binsize       --> [float] if append_binned_by_z, how big should your redshift bin be
+            out_path               --> [string] write the rate group to this hdf5 file instead of to path (created if needed)
 
         Returns:
             h_new                  --> [hdf5 file] Compas output file with a new group "rates" with the same shape as DoubleCompactObjects x redshifts
@@ -535,12 +537,18 @@ def append_rates(path, detection_rate, formation_rate, merger_rate, redshifts, C
     print('shape COMPAS COMPAS.DCOmask', np.shape(COMPAS.DCOmask) )
 
     #################################################
-    #Open hdf5 file that we will write on
+    # The rate info is shaped as BSE_Double_Compact_Objects[COMPAS.DCOmask] , len(redshifts)
     print('pathToData', path)
-    with h5.File(path, 'r+') as h_new:
-        # The rate info is shaped as BSE_Double_Compact_Objects[COMPAS.DCOmask] , len(redshifts)
-        DCO             = h_new['BSE_Double_Compact_Objects']#
-        print('shape DCO[SEED]', np.shape(DCO['SEED'][()]) )
+    with h5.File(path, 'r') as h_in:
+        DCO_seeds = h_in['BSE_Double_Compact_Objects']['SEED'][()]
+    print('shape DCO[SEED]', np.shape(DCO_seeds) )
+
+    #################################################
+    #Open hdf5 file that we will write on
+    if out_path is None:
+        out_path = path
+    print('writing rates to', out_path)
+    with h5.File(out_path, 'a') as h_new:
 
         #################################################
         # Create a new group where we will store data
@@ -622,7 +630,7 @@ def append_rates(path, detection_rate, formation_rate, merger_rate, redshifts, C
         # Write the rates as a separate dataset
         # re-arrange your list of rate parameters
         DCO_to_rate_mask     = COMPAS.DCOmask #save this bool for easy conversion between BSE_Double_Compact_Objects, and CI weights
-        rate_data_list       = [DCO['SEED'][DCO_to_rate_mask], DCO_to_rate_mask , save_redshifts,  save_merger_rate, merger_rate[:,0], save_detection_rate]
+        rate_data_list       = [DCO_seeds[DCO_to_rate_mask], DCO_to_rate_mask , save_redshifts,  save_merger_rate, merger_rate[:,0], save_detection_rate]
         rate_list_names      = ['SEED', 'DCOmask', 'redshifts',  'merger_rate','merger_rate_z0', 'detection_rate'+sensitivity]
         for i, data in enumerate(rate_data_list):
             print('Adding rate info of shape', np.shape(data))
@@ -634,7 +642,7 @@ def append_rates(path, detection_rate, formation_rate, merger_rate, redshifts, C
 
     #Always close your files again ;)
     h_new.close()
-    print(('Done with append_rates :) your new files are here: {}'.format(path)))
+    print(('Done with append_rates :) your new files are here: {}'.format(out_path)))
 
 
 
@@ -819,6 +827,9 @@ def parse_cli_args():
     parser.add_argument("--delete", dest='delete_rates',
                         help="Delete the rate group from your hdf5 output file (groupname based on dP/dZ parameters)",
                         action='store_true', default=False)
+    parser.add_argument("--rates_path", dest='rates_path',
+                        help="Write the rate group to this separate hdf5 file instead of appending it to --path",
+                        type=str, default=None)
     parser.add_argument("--cosmology_name", dest='cosmology_name', help="Cosmology that is used for cosmic integration using the astropy.cosmology class: one of ['Planck13', 'Planck15', 'Planck18', 'WMAP1', 'WMAP3', 'WMAP5', 'WMAP9']", 
                         type=str, default="Planck18")
 
@@ -884,7 +895,8 @@ def main():
         append_rates(args.path, detection_rate, formation_rate, merger_rate, redshifts, COMPAS, n_redshifts_detection,
                      maxz=args.max_redshift_detection, sensitivity=args.sensitivity, dco_type=args.dco_type,
                      mu0=args.mu0, muz=args.muz, sigma0=args.sigma0, sigmaz=args.sigmaz, alpha=args.alpha,
-                     append_binned_by_z=False, redshift_binsize=0.05, cosmology=cosmology)
+                     append_binned_by_z=False, redshift_binsize=0.05, cosmology=cosmology,
+                     out_path=args.rates_path)
 
     # or just delete this group if your hdf5 file is getting too big
     if args.delete_rates:
